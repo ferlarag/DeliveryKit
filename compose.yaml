@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:?Set DATABASE_NAME in .env}
+      POSTGRES_USER: ${DATABASE_USER:?Set DATABASE_USER in .env}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}" ]
+      interval: 2s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    image: deliverykit:local
+    env_file: .env
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    depends_on:
+      db: { condition: service_healthy }
+
+  worker:
+    profiles: [ workers ]
+    image: deliverykit:local
+    env_file: .env
+    environment:
+      WORKER_ENABLED: "true"
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
