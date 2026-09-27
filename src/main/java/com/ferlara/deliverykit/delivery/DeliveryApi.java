@@ -27,21 +27,18 @@ public class DeliveryApi {
     public DeliveryApi(
             DeliveryStore store,
             @Value("${app.admin-token}") String adminToken,
-            @Value("${app.allow-http-targets}") boolean allowHttp
-    ) {
+            @Value("${app.allow-http-targets}") boolean allowHttp) {
         this.store = store;
         this.adminToken = adminToken;
         this.allowHttp = allowHttp;
     }
 
-    public record EventRequest(@NotBlank String eventId, @NotNull JsonNode payload) {
-    }
+    public record EventRequest(
+            @NotBlank String eventId, @NotNull JsonNode payload) {}
 
-    public record EndpointRequest(@NotBlank String url) {
-    }
+    public record EndpointRequest(@NotBlank String url) {}
 
-    public record EventResponse(String eventId, List<UUID> deliveryIds) {
-    }
+    public record EventResponse(String eventId, List<UUID> deliveryIds) {}
 
     @PostMapping("/webhooks")
     public ResponseEntity<EventResponse> postWebhook(@Valid @RequestBody EventRequest request) {
@@ -53,10 +50,12 @@ public class DeliveryApi {
         if (existing != null) {
             if (!existing.equals(payload))
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "eventId already has a different payload");
-            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new EventResponse(request.eventId(), store.eventDeliveries(request.eventId())));
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(new EventResponse(request.eventId(), store.eventDeliveries(request.eventId())));
         }
         try {
-            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new EventResponse(request.eventId(), store.createEvent(request.eventId(), payload)));
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(new EventResponse(request.eventId(), store.createEvent(request.eventId(), payload)));
         } catch (DataIntegrityViolationException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "eventId already exists; retry the request", e);
         }
@@ -70,7 +69,8 @@ public class DeliveryApi {
     }
 
     @PostMapping("/deliveries/{id}/retry")
-    public ResponseEntity<?> retry(@PathVariable UUID id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+    public ResponseEntity<?> retry(
+            @PathVariable UUID id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
         requireAdmin(token);
         if (store.delivery(id) == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         if (!store.retry(id))
@@ -79,14 +79,16 @@ public class DeliveryApi {
     }
 
     @GetMapping("/endpoints")
-    public List<DeliveryStore.Endpoint> endpoints(@RequestHeader(value = "X-Admin-Token", required = false) String token) {
+    public List<DeliveryStore.Endpoint> endpoints(
+            @RequestHeader(value = "X-Admin-Token", required = false) String token) {
         requireAdmin(token);
         return store.endpoints();
     }
 
     @PostMapping("/endpoints")
-    public ResponseEntity<DeliveryStore.Endpoint> addEndpoint(@Valid @RequestBody EndpointRequest request,
-                                                              @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+    public ResponseEntity<DeliveryStore.Endpoint> addEndpoint(
+            @Valid @RequestBody EndpointRequest request,
+            @RequestHeader(value = "X-Admin-Token", required = false) String token) {
         requireAdmin(token);
         URI uri;
         try {
@@ -94,8 +96,11 @@ public class DeliveryApi {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid URL");
         }
-        if (uri.getHost() == null || uri.getUserInfo() != null || uri.getFragment() != null ||
-                !(uri.getScheme().equals("https") || (allowHttp && uri.getScheme().equals("http")))) {
+        if (uri.getHost() == null
+                || uri.getUserInfo() != null
+                || uri.getFragment() != null
+                || !(uri.getScheme().equals("https")
+                        || (allowHttp && uri.getScheme().equals("http")))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target must be an absolute HTTPS URL");
         }
         try {
@@ -112,8 +117,9 @@ public class DeliveryApi {
     }
 
     private void requireAdmin(String supplied) {
-        if (supplied == null || !MessageDigest.isEqual(supplied.getBytes(StandardCharsets.UTF_8),
-                adminToken.getBytes(StandardCharsets.UTF_8))) {
+        if (supplied == null
+                || !MessageDigest.isEqual(
+                        supplied.getBytes(StandardCharsets.UTF_8), adminToken.getBytes(StandardCharsets.UTF_8))) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing or invalid admin token");
         }
     }

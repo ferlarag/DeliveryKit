@@ -5,13 +5,13 @@ DeliveryKit accepts events and delivers each one to registered webhook recipient
 ```mermaid
 flowchart LR
   Client -->|HTTP| API[App container: page + API]
-  API -->|transaction: event + deliveries + outbox| DB[(PostgreSQL)]
-  Worker[App container: worker] -->|claim outbox + delivery| DB
+  API -->|transaction: event + deliveries + queue| DB[(PostgreSQL)]
+  Worker[App container: worker] -->|claim queue item + delivery| DB
   Worker -->|HTTP POST| Recipient
   Worker -->|result + retry time| DB
 ```
 
-PostgreSQL is the durable work queue. The API inserts the event, deliveries, and outbox rows in one transaction. Workers claim outbox rows and deliveries with conditional database updates, so multiple worker containers can share one database. Failed attempts stay in the outbox and retry after exponential backoff, starting at 5 seconds and capped at one hour. A successful delivery completes its outbox row. Delivery is **at least once**: a crash after a recipient accepts a POST but before success is recorded can produce a second POST. The `Idempotency-Key` header remains the delivery UUID across retries.
+PostgreSQL is the durable work queue. The API inserts the event, deliveries, and queue items in one transaction. Workers claim queue items and deliveries with conditional database updates, so multiple worker containers can share one database. Failed attempts stay in the queue and retry after exponential backoff, starting at 5 seconds and capped at one hour. A successful delivery completes its queue item. Delivery is **at least once**: a crash after a recipient accepts a POST but before success is recorded can produce a second POST. The `Idempotency-Key` header remains the delivery UUID across retries.
 
 ## Single-machine install
 
@@ -56,9 +56,9 @@ This repository does not currently include an AWS infrastructure template or dep
 
 `POST /webhooks` accepts `{"eventId":"unique-1","payload":{"kind":"demo"}}` and returns delivery IDs with status 202. Repeating an event ID with the same payload returns its existing deliveries; a different payload is rejected. Each endpoint gets its own delivery. `GET /deliveries/{id}` shows status, attempts, and last error. `POST /deliveries/{id}/retry` accepts a failed delivery and requires `X-Admin-Token`; endpoint creation and listing require the same token. The recipient receives `X-Webhook-Event-Id` and a stable `Idempotency-Key`.
 
-Flyway owns the schema in `src/main/resources/db/migration`. Hibernate validates it at startup. The initial migration is unchanged, so an existing installation can keep its data. If migrating a database originally created with `schema.sql` and no Flyway history, back it up, confirm it matches V1, and start once with `FLYWAY_BASELINE_ON_MIGRATE=true`; then remove that setting. Inspect `flyway_schema_history` before normal operation.
+Flyway owns the schema in `src/main/resources/db/migration`. Hibernate validates it at startup. The initial migration is unchanged, and V2 renames the queue table without dropping its data. If migrating a database originally created with `schema.sql` and no Flyway history, back it up, confirm it matches V1, and start once with `FLYWAY_BASELINE_ON_MIGRATE=true`; then remove that setting. Inspect `flyway_schema_history` before normal operation.
 
-Run tests with `./mvnw test` and build an image with `docker build -t deliverykit:local .`. Tests use H2 and a local HTTP server or mocked HTTP client; they need no AWS resources.
+Run tests with `./mvnw test`, format Java sources with `./mvnw spotless:apply`, and check formatting with `./mvnw spotless:check`. The Maven `verify` phase also checks formatting. Build an image with `docker build -t deliverykit:local .`. Tests use H2 and a local HTTP server or mocked HTTP client; they need no AWS resources.
 
 ## Current limits
 

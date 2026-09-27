@@ -2,14 +2,6 @@ package com.ferlara.deliverykit.queue;
 
 import com.ferlara.deliverykit.delivery.DeliveryStore;
 import jakarta.annotation.PreDestroy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -19,39 +11,52 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
 
 @Configuration
 class WorkerConfiguration {
     @Bean
     HttpClient httpClient() {
-        return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
-                .followRedirects(HttpClient.Redirect.NEVER).build();
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
     }
 }
 
 @Component
-public class QueueWorker {
-    private static final Logger log = LoggerFactory.getLogger(QueueWorker.class);
+public class Worker {
+    private static final Logger log = LoggerFactory.getLogger(Worker.class);
     private final DeliveryStore store;
     private final HttpClient http;
     private final boolean enabled;
     private final ExecutorService executor;
 
-    public QueueWorker(DeliveryStore store, HttpClient http,
-                       @Value("${app.worker-enabled}") boolean enabled,
-                       @Value("${app.worker-concurrency:4}") int concurrency) {
+    public Worker(
+            DeliveryStore store,
+            HttpClient http,
+            @Value("${app.worker-enabled}") boolean enabled,
+            @Value("${app.worker-concurrency:4}") int concurrency) {
         this.store = store;
         this.http = http;
         this.enabled = enabled;
         if (concurrency < 1 || concurrency > 32) throw new IllegalArgumentException("WORKER_CONCURRENCY must be 1-32");
-        this.executor = Executors.newFixedThreadPool(concurrency, Thread.ofVirtual().factory());
+        this.executor =
+                Executors.newFixedThreadPool(concurrency, Thread.ofVirtual().factory());
     }
 
     @Scheduled(fixedDelayString = "${app.worker-poll-interval-ms:1000}")
     public void poll() {
         if (!enabled) return;
-        var tasks = store.unsent().stream()
-                .map(item -> CompletableFuture.runAsync(() -> process(item), executor)).toArray(CompletableFuture[]::new);
+        var tasks = store.readyQueueItems().stream()
+                .map(item -> CompletableFuture.runAsync(() -> process(item), executor))
+                .toArray(CompletableFuture[]::new);
         CompletableFuture.allOf(tasks).join();
     }
 
@@ -60,17 +65,17 @@ public class QueueWorker {
         executor.shutdown();
     }
 
-    private void process(DeliveryStore.OutboxItem item) {
-        if (!store.claimOutbox(item.id())) return;
+    private void process(DeliveryStore.QueueItem item) {
+        if (!store.claimQueueItem(item.id())) return;
         try {
             if (deliver(item.deliveryId())) {
-                store.sent(item.id());
+                store.completeQueueItem(item.id());
             } else {
                 var delivery = store.delivery(item.deliveryId());
-                store.deferOutbox(item.id(), delivery == null ? 1 : delivery.attempts());
+                store.deferQueueItem(item.id(), delivery == null ? 1 : delivery.attempts());
             }
         } catch (RuntimeException e) {
-            store.deferOutbox(item.id(), 1);
+            store.deferQueueItem(item.id(), 1);
             log.warn("Delivery processing failed for {}: {}", item.deliveryId(), e.toString());
         }
     }
@@ -87,8 +92,10 @@ public class QueueWorker {
                     .header("Content-Type", "application/json")
                     .header("X-Webhook-Event-Id", delivery.eventId())
                     .header("Idempotency-Key", delivery.id().toString())
-                    .POST(HttpRequest.BodyPublishers.ofString(delivery.payload())).build();
-            int status = http.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+                    .POST(HttpRequest.BodyPublishers.ofString(delivery.payload()))
+                    .build();
+            int status =
+                    http.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
             if (status < 200 || status >= 300) throw new IllegalStateException("Recipient returned HTTP " + status);
             store.succeeded(id);
             log.info("Delivery {} succeeded", id);
