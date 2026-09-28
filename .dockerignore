@@ -4,3 +4,7 @@ target
 *.md
 compose.yaml
 infra
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/*.tsbuildinfo

@@ -3,6 +3,7 @@ package com.ferlara.deliverykit;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 import com.ferlara.deliverykit.delivery.DeliveryApi;
 import com.ferlara.deliverykit.delivery.DeliveryRepository;
@@ -24,6 +25,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest(
@@ -53,6 +56,22 @@ class DeliveryKitApplicationTests {
 
     @Autowired
     WebhookEndpointRepository endpoints;
+
+    @Autowired
+    WebApplicationContext webContext;
+
+    @Test
+    void rootServesBuiltReactApp() throws Exception {
+        var mvc = MockMvcBuilders.webAppContextSetup(webContext).build();
+        var welcome = mvc.perform(get("/")).andReturn().getResponse();
+        assertEquals(200, welcome.getStatus());
+        assertEquals("index.html", welcome.getForwardedUrl());
+
+        var index = mvc.perform(get("/index.html")).andReturn().getResponse();
+        assertEquals(200, index.getStatus());
+        assertTrue(index.getContentAsString().contains("<div id=\"root\"></div>"));
+        assertTrue(index.getContentAsString().contains("/assets/index-"));
+    }
 
     @BeforeEach
     void clearDatabase() {

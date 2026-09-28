@@ -1,6 +1,6 @@
 # DeliveryKit
 
-DeliveryKit accepts events and delivers each one to registered webhook recipients. It runs as one container with an API, a simple browser page, and workers, plus PostgreSQL. The same image can also run as an API-only or worker-only container. A React interface can replace the current page later; the API already serves the page from the same origin and port.
+DeliveryKit accepts events and delivers each one to registered webhook recipients. It runs as one container with an API, a React browser page, and workers, plus PostgreSQL. The same image can also run as an API-only or worker-only container. The API serves the page from the same origin and port.
 
 ```mermaid
 flowchart LR
@@ -24,6 +24,11 @@ docker compose logs -f app
 ```
 
 Open `http://localhost:8080` (or the port set by `APP_PORT`). The app serves the current browser page and API on the same port. PostgreSQL stays on the private Compose network; its data is in the `pgdata` volume. No Nginx is required for this setup. Put a TLS reverse proxy in front of the app when exposing it on the internet. `docker compose down` stops the services; `docker compose down -v` also **deletes the database volume**.
+
+The browser page is a React SPA in `frontend/`, built with Vite+, TanStack Router, and shadcn/ui. Maven builds it into
+the Spring Boot jar, so `./mvnw package` and the Docker image serve it at `/`. The current page is a styling preview;
+API workflows are not yet connected. For frontend development, run `npm ci` and `npm run dev` in `frontend/`. Maven
+downloads its own Node.js for reproducible jar builds.
 
 The application reads these variables from `.env`:
 
@@ -62,7 +67,6 @@ Run tests with `./mvnw test`, format Java sources with `./mvnw spotless:apply`, 
 
 ## Current limits
 
-- The browser page is a simple static page, not React yet.
 - Event submission and delivery lookup are unauthenticated. Use network controls or add authentication before serving untrusted users.
 - HTTPS endpoint validation does not block private destinations after DNS resolution. Restrict egress or use an allowlist before accepting endpoint registrations from untrusted users.
 - There is no retry limit, dead-letter queue, tenant isolation, signed webhook, or payload retention policy. Repeatedly failing deliveries remain in the database and retry at most once per hour.
