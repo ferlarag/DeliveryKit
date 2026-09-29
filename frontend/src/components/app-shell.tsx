@@ -28,14 +28,36 @@ export function AppShell() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="border-b bg-card/70 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-8">
+        <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-5 py-4 sm:px-8 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <Link to="/" className="flex items-center gap-3 font-semibold tracking-tight">
             <span className="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
               <RiWebhookLine className="size-5" aria-hidden="true" />
             </span>
             <span className="text-lg">DeliveryKit</span>
           </Link>
-          <div className="flex items-center gap-3">
+          <nav
+            aria-label="Main navigation"
+            className="col-span-2 row-start-2 flex min-w-0 justify-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:col-span-1 lg:col-start-2 lg:row-start-1"
+          >
+            {navigation.map(({ to, label, icon: Icon }) => {
+              const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    buttonVariants({ variant: active ? "secondary" : "ghost", size: "sm" }),
+                    "gap-1.5 px-2 sm:gap-2 sm:px-3",
+                  )}
+                >
+                  <Icon className="size-4" aria-hidden="true" />
+                  {label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="col-start-2 row-start-1 flex items-center justify-self-end gap-3 lg:col-start-3">
             <div className="hidden items-center gap-2 sm:flex">
               <label
                 htmlFor="admin-token"
@@ -62,28 +84,6 @@ export function AppShell() {
               {theme === "dark" ? <RiSunLine /> : <RiMoonLine />}
             </Button>
           </div>
-          <nav
-            aria-label="Main navigation"
-            className="order-3 flex w-full gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:order-none sm:w-auto"
-          >
-            {navigation.map(({ to, label, icon: Icon }) => {
-              const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    buttonVariants({ variant: active ? "secondary" : "ghost", size: "sm" }),
-                    "gap-1.5 px-2 sm:gap-2 sm:px-3",
-                  )}
-                >
-                  <Icon className="size-4" aria-hidden="true" />
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
         </div>
         <div className="mx-auto px-5 pb-4 sm:hidden">
           <label

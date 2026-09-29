@@ -276,7 +276,7 @@ export function DeliveriesPage() {
                       <Link
                         to="/deliveries/$deliveryId"
                         params={{ deliveryId: id }}
-                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                        className="inline-flex items-center gap-1 text-primary hover:underline dark:text-blue-300 dark:hover:text-blue-200"
                       >
                         Details <RiArrowRightLine className="size-4" />
                       </Link>
