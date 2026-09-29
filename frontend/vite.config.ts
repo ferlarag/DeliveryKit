@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: Object.fromEntries(
-        ["/webhooks", "/endpoints", "/deliveries", "/health"].map((path) => [
+        ["/webhooks", "/ingress-endpoints", "/endpoints", "/deliveries", "/health"].map((path) => [
           path,
           DELIVERYKIT_API_TARGET,
         ]),

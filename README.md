@@ -90,8 +90,20 @@ database is available. The image exposes port 8080.
 `POST /webhooks` accepts `{"eventId":"unique-1","payload":{"kind":"demo"}}` and returns delivery IDs with status 202.
 Repeating an event ID with the same payload returns its existing deliveries; a different payload is rejected. Each
 endpoint gets its own delivery. `GET /deliveries/{id}` shows status, attempts, and last error.
+`GET /deliveries/{id}/attempts` returns each recorded send with timing, outcome, HTTP status,
+failure reason, and whether it followed a manual retry. Attempts made before the history migration
+retain their count but have no individual records.
 `POST /deliveries/{id}/retry` accepts a failed delivery and requires `X-Admin-Token`; endpoint creation and listing
 require the same token. The recipient receives `X-Webhook-Event-Id` and a stable `Idempotency-Key`.
+
+`GET /ingress-endpoints` lists reusable incoming endpoints; `POST /ingress-endpoints` creates one with a unique
+1–64 character lowercase ID. Both require `X-Admin-Token`. Senders POST events to `/webhooks/{endpointId}`;
+DeliveryKit records that endpoint ID as the event source. The shared `/webhooks` URL remains available.
+
+Event submissions may include `sourceId` (up to 200 characters) and `sourceUrl` (an HTTP or HTTPS URL, up to 2048
+characters). These are caller-provided claims, not authenticated identities. Delivery detail also records the direct
+connection IP from the original request; behind a proxy this is the proxy's IP. Forwarded IP headers are not trusted.
+Existing events have empty source fields after migration. Rerun the local demo seed to fill those fields for demo events.
 
 Flyway owns the schema in `src/main/resources/db/migration`. Hibernate validates it at startup. The initial migration is
 unchanged, and V2 renames the queue table without dropping its data. If migrating a database originally created with

@@ -27,11 +27,15 @@ public class QueueItemEntity {
     @Column(name = "claimed_until")
     private Instant claimedUntil;
 
+    @Column(name = "manual_retry", nullable = false)
+    private boolean manualRetry;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
-    public QueueItemEntity(UUID id, UUID deliveryId) {
+    public QueueItemEntity(UUID id, UUID deliveryId, boolean manualRetry) {
         this.id = id;
         this.deliveryId = deliveryId;
+        this.manualRetry = manualRetry;
     }
 }

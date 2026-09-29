@@ -26,6 +26,28 @@ describe("DeliveryKit API client", () => {
     );
   });
 
+  it("includes the optional source URL when submitting an event", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ eventId: "evt-2", deliveryIds: [] }), { status: 202 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.submitEvent("evt-2", { kind: "demo" }, "https://shop.example.test/events");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/webhooks",
+      expect.objectContaining({
+        body: JSON.stringify({
+          eventId: "evt-2",
+          payload: { kind: "demo" },
+          sourceUrl: "https://shop.example.test/events",
+        }),
+      }),
+    );
+  });
+
   it("sends the admin token for destination creation and retry", async () => {
     const fetchMock = vi
       .fn()
@@ -57,6 +79,38 @@ describe("DeliveryKit API client", () => {
         method: "POST",
         headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
       }),
+    );
+  });
+
+  it("creates an incoming endpoint and sends an event to its URL", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "orders-prod", createdAt: "2026-09-29T00:00:00Z" }), {
+          status: 201,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ eventId: "evt-3", deliveryIds: [] }), { status: 202 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.addIngressEndpoint("secret", "orders-prod");
+    await api.submitEvent("evt-3", { kind: "demo" }, undefined, "orders-prod");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/ingress-endpoints",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+        body: JSON.stringify({ id: "orders-prod" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/webhooks/orders-prod",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

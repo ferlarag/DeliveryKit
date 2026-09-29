@@ -96,7 +96,7 @@ export function AppShell() {
             id="admin-token-mobile"
             type="password"
             autoComplete="off"
-            placeholder="Needed for destinations and retry"
+            placeholder="Needed for endpoints and retry"
             value={adminToken}
             onChange={(event) => setAdminToken(event.target.value)}
           />

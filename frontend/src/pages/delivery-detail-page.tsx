@@ -1,13 +1,14 @@
-import { RiArrowLeftLine, RiInformationLine, RiRefreshLine, RiRestartLine } from "@remixicon/react";
+import { RiArrowLeftLine, RiRefreshLine, RiRestartLine } from "@remixicon/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CopyBlock } from "@/components/copy-block";
 import { DeliveryStatus } from "@/components/delivery-status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, type Delivery } from "@/lib/api";
+import { api, type Delivery, type DeliveryAttempt } from "@/lib/api";
 import { trackDeliveryIds } from "@/lib/delivery-tracking";
 import { useAdminToken } from "@/lib/use-admin-token";
 
@@ -22,6 +23,7 @@ function displayPayload(payload: string) {
 export function DeliveryDetailPage({ id }: { id: string }) {
   const token = useAdminToken();
   const [delivery, setDelivery] = useState<Delivery | null>(null);
+  const [attempts, setAttempts] = useState<DeliveryAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -33,12 +35,12 @@ export function DeliveryDetailPage({ id }: { id: string }) {
     let active = true;
     setLoading(true);
     setError(null);
-    api
-      .delivery(id)
+    Promise.all([api.delivery(id), api.attempts(id)])
       .then(
-        (data) => {
+        ([data, history]) => {
           if (active) {
             setDelivery(data);
+            setAttempts(history);
             trackDeliveryIds([id]);
           }
         },
@@ -132,12 +134,17 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                 <CardTitle>Origin</CardTitle>
                 <CardDescription>Incoming event</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="text-muted-foreground">Event ID</div>
-                <div className="break-all font-mono">{delivery.eventId}</div>
-                <div className="pt-2 text-xs text-muted-foreground">
-                  Sender URL, IP, and source identity are not recorded by the API.
-                </div>
+              <CardContent className="text-sm">
+                <dl className="space-y-3">
+                  <div>
+                    <dt className="text-muted-foreground">Event ID</dt>
+                    <dd className="break-all font-mono">{delivery.eventId}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Claimed source URL</dt>
+                    <dd className="break-all">{delivery.sourceUrl ?? "Not provided"}</dd>
+                  </div>
+                </dl>
               </CardContent>
             </Card>
             <Card>
@@ -165,7 +172,7 @@ export function DeliveryDetailPage({ id }: { id: string }) {
               <Card>
                 <CardHeader>
                   <CardTitle>Attempts &amp; retry</CardTitle>
-                  <CardDescription>Current delivery summary</CardDescription>
+                  <CardDescription>Each send to the destination</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-5">
                   <div className="rounded-xl border bg-muted/30 p-4 text-sm">
@@ -173,15 +180,9 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                       {delivery.attempts} total {delivery.attempts === 1 ? "attempt" : "attempts"}
                     </div>
                     <p className="mt-1 text-muted-foreground">
-                      Individual results and timestamps are not exposed by the API.
+                      {attempts.length} {attempts.length === 1 ? "result" : "results"} in history
                     </p>
                   </div>
-                  {delivery.lastError && (
-                    <div className="space-y-1 text-sm">
-                      <div className="font-medium">Latest error</div>
-                      <p className="break-words text-destructive">{delivery.lastError}</p>
-                    </div>
-                  )}
                   <Button
                     onClick={retry}
                     disabled={delivery.status !== "FAILED" || !token || retrying}
@@ -208,14 +209,55 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                   )}
                 </CardContent>
               </Card>
-              <Alert>
-                <RiInformationLine />
-                <AlertTitle>Attempt history unavailable</AlertTitle>
-                <AlertDescription>
-                  The API returns only the total attempt count, current status, and latest error. It
-                  does not return separate failures, successes, or manual retry events.
-                </AlertDescription>
-              </Alert>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Attempt history</CardTitle>
+                  <CardDescription>Newest attempt first</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {attempts.length === 0 && (
+                    <div className="space-y-2 text-sm">
+                      <p className="text-muted-foreground">
+                        {delivery.attempts === 0
+                          ? "No send attempts yet."
+                          : "Earlier attempts were not recorded individually."}
+                      </p>
+                      {delivery.lastError && (
+                        <p className="break-words text-destructive">Latest error: {delivery.lastError}</p>
+                      )}
+                    </div>
+                  )}
+                  {attempts.map((attempt) => (
+                    <div key={attempt.id} className="rounded-xl border p-4 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">Attempt {attempt.number}</span>
+                        <Badge variant={attempt.status === "FAILED" ? "destructive" : "secondary"}>
+                          {attempt.status === "PROCESSING"
+                            ? attempt.number === delivery.attempts && delivery.status === "PROCESSING"
+                              ? "In progress"
+                              : "Outcome unknown"
+                            : attempt.status.toLowerCase()}
+                        </Badge>
+                        {attempt.initiatedBy === "MANUAL" && <Badge variant="outline">Manual retry</Badge>}
+                      </div>
+                      <div className="mt-2 text-muted-foreground">
+                        {new Date(attempt.startedAt).toLocaleString()}
+                        {attempt.httpStatus != null && ` · HTTP ${attempt.httpStatus}`}
+                        {attempt.completedAt &&
+                          ` · ${Math.max(0, Math.round((new Date(attempt.completedAt).getTime() - new Date(attempt.startedAt).getTime()) / 1000))}s`}
+                      </div>
+                      {attempt.error && (
+                        <p className="mt-2 break-words text-destructive">{attempt.error}</p>
+                      )}
+                    </div>
+                  ))}
+                  {attempts.length < delivery.attempts && attempts.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Earlier attempts predate individual history.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
               <CopyBlock label="Idempotency-Key" value={delivery.id} />
             </div>
           </div>
