@@ -1,4 +1,4 @@
-export type Endpoint = { id: string; url: string };
+export type Endpoint = { id: string; url: string; archivedAt: string | null };
 export type IngressEndpoint = {
   id: string;
   createdAt: string;
@@ -80,19 +80,41 @@ export const api = {
       method: "DELETE",
       headers: adminHeaders(token),
     }),
-  endpoints: (token: string) => request<Endpoint[]>("/endpoints", { headers: adminHeaders(token) }),
+  endpoints: (token: string, includeArchived = false) =>
+    request<Endpoint[]>(includeArchived ? "/endpoints?includeArchived=true" : "/endpoints", {
+      headers: adminHeaders(token),
+    }),
   addEndpoint: (token: string, url: string) =>
     request<Endpoint>("/endpoints", {
       method: "POST",
       headers: adminHeaders(token),
       body: JSON.stringify({ url }),
     }),
-  submitEvent: (eventId: string, payload: unknown, sourceUrl?: string, endpointId?: string) =>
-    request<EventResponse>(endpointId ? `/webhooks/${encodeURIComponent(endpointId)}` : "/webhooks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eventId, payload, ...(sourceUrl && { sourceUrl }) }),
+  updateEndpoint: (token: string, id: string, url: string) =>
+    request<Endpoint>(`/endpoints/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: adminHeaders(token),
+      body: JSON.stringify({ url }),
     }),
+  removeEndpoint: (token: string, id: string) =>
+    request<void>(`/endpoints/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: adminHeaders(token),
+    }),
+  restoreEndpoint: (token: string, id: string) =>
+    request<Endpoint>(`/endpoints/${encodeURIComponent(id)}/restore`, {
+      method: "POST",
+      headers: adminHeaders(token),
+    }),
+  submitEvent: (eventId: string, payload: unknown, sourceUrl?: string, endpointId?: string) =>
+    request<EventResponse>(
+      endpointId ? `/webhooks/${encodeURIComponent(endpointId)}` : "/webhooks",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, payload, ...(sourceUrl && { sourceUrl }) }),
+      },
+    ),
   delivery: (id: string) => request<Delivery>(`/deliveries/${encodeURIComponent(id)}`),
   attempts: (id: string) =>
     request<DeliveryAttempt[]>(`/deliveries/${encodeURIComponent(id)}/attempts`),

@@ -106,6 +106,13 @@ the corresponding `/archive` and
 `DELETE /ingress-endpoints/{id}` is allowed only before the endpoint receives an event. The shared `/webhooks` URL
 remains available and forwards to every destination.
 
+Destinations can be edited with `PUT /endpoints/{id}` and `{"url":"https://..."}` using `X-Admin-Token`.
+The destination ID and incoming endpoint routing stay the same. New deliveries use the updated URL; existing
+deliveries and their retries keep the URL recorded when each delivery was created.
+`DELETE /endpoints/{id}` removes a destination from active routing after it has been unassigned from all incoming
+endpoints. Delivery history remains intact. `POST /endpoints/{id}/restore` makes it available again, without
+reassigning it to incoming endpoints. `GET /endpoints?includeArchived=true` includes removed destinations.
+
 Event submissions may include `sourceId` (up to 200 characters) and `sourceUrl` (an HTTP or HTTPS URL, up to 2048
 characters). On named endpoint URLs, the endpoint ID is recorded as `sourceId`; on the shared URL, any caller-provided
 `sourceId` is a claim, not an authenticated identity. Delivery detail also records the direct connection IP from

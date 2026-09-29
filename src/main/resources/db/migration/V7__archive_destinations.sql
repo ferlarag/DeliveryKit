@@ -1,0 +1,1 @@
+ALTER TABLE webhook_endpoints ADD COLUMN archived_at TIMESTAMP WITH TIME ZONE;

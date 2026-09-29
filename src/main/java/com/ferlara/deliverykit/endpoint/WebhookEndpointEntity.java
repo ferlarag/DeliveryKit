@@ -24,8 +24,23 @@ public class WebhookEndpointEntity {
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     public WebhookEndpointEntity(UUID id, String url) {
         this.id = id;
         this.url = url;
+    }
+
+    public void updateUrl(String url) {
+        this.url = url;
+    }
+
+    public void archive() {
+        this.archivedAt = Instant.now();
+    }
+
+    public void restore() {
+        this.archivedAt = null;
     }
 }

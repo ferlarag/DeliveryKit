@@ -41,7 +41,8 @@ public class DeliveryApi {
             @Size(max = 200) String sourceId,
             @Size(max = 2048) String sourceUrl) {}
 
-    public record EndpointRequest(@NotBlank String url) {}
+    public record EndpointRequest(
+            @NotBlank @Size(max = 2048) String url) {}
 
     public record IngressEndpointRequest(@NotBlank String id, List<UUID> destinationIds) {}
 
@@ -193,9 +194,10 @@ public class DeliveryApi {
 
     @GetMapping("/endpoints")
     public List<DeliveryStore.Endpoint> endpoints(
+            @RequestParam(defaultValue = "false") boolean includeArchived,
             @RequestHeader(value = "X-Admin-Token", required = false) String token) {
         requireAdmin(token);
-        return store.endpoints();
+        return includeArchived ? store.allEndpoints() : store.endpoints();
     }
 
     @PostMapping("/endpoints")
@@ -203,24 +205,65 @@ public class DeliveryApi {
             @Valid @RequestBody EndpointRequest request,
             @RequestHeader(value = "X-Admin-Token", required = false) String token) {
         requireAdmin(token);
+        try {
+            return ResponseEntity.status(HttpStatus.CREATED).body(store.addEndpoint(validatedTargetUrl(request.url())));
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Endpoint already exists", e);
+        }
+    }
+
+    @DeleteMapping("/endpoints/{id}")
+    public ResponseEntity<Void> archiveEndpoint(
+            @PathVariable UUID id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        try {
+            if (store.archiveEndpoint(id) == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+            return ResponseEntity.noContent().build();
+        } catch (DeliveryStore.DestinationConflictException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
+        }
+    }
+
+    @PostMapping("/endpoints/{id}/restore")
+    public DeliveryStore.Endpoint restoreEndpoint(
+            @PathVariable UUID id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        var endpoint = store.restoreEndpoint(id);
+        if (endpoint == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return endpoint;
+    }
+
+    @PutMapping("/endpoints/{id}")
+    public DeliveryStore.Endpoint updateEndpoint(
+            @PathVariable UUID id,
+            @Valid @RequestBody EndpointRequest request,
+            @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        try {
+            var endpoint = store.updateEndpoint(id, validatedTargetUrl(request.url()));
+            if (endpoint == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+            return endpoint;
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Endpoint already exists", e);
+        } catch (DeliveryStore.DestinationConflictException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
+        }
+    }
+
+    private String validatedTargetUrl(String url) {
         URI uri;
         try {
-            uri = URI.create(request.url());
+            uri = URI.create(url);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid URL");
         }
         if (uri.getHost() == null
                 || uri.getUserInfo() != null
                 || uri.getFragment() != null
-                || !(uri.getScheme().equals("https")
-                        || (allowHttp && uri.getScheme().equals("http")))) {
+                || !("https".equals(uri.getScheme()) || (allowHttp && "http".equals(uri.getScheme())))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target must be an absolute HTTPS URL");
         }
-        try {
-            return ResponseEntity.status(HttpStatus.CREATED).body(store.addEndpoint(uri.toString()));
-        } catch (DataIntegrityViolationException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Endpoint already exists", e);
-        }
+        return uri.toString();
     }
 
     @GetMapping("/health")

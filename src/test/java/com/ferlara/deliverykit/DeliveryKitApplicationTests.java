@@ -101,6 +101,162 @@ class DeliveryKitApplicationTests {
     }
 
     @Test
+    void editingDestinationKeepsRoutingAndExistingDeliveryTargets() throws Exception {
+        var destination = store.addEndpoint("https://old.example.test/hook");
+        var other = store.addEndpoint("https://other.example.test/hook");
+        store.addIngressEndpoint("orders", List.of(destination.id()));
+        store.createEvent("before-edit", "{}", new DeliveryStore.EventOrigin(null, null, null), "orders");
+        UUID existingDelivery = store.eventDeliveries("before-edit").getFirst();
+        var mvc = MockMvcBuilders.webAppContextSetup(webContext).build();
+        String path = "/endpoints/" + destination.id();
+
+        assertEquals(
+                401,
+                mvc.perform(put(path)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"url\":\"https://new.example.test/hook\"}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                404,
+                mvc.perform(put("/endpoints/" + UUID.randomUUID())
+                                .header("X-Admin-Token", "test-secret")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"url\":\"https://new.example.test/hook\"}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                400,
+                mvc.perform(put(path)
+                                .header("X-Admin-Token", "test-secret")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"url\":\"ftp://invalid.example.test/hook\"}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                400,
+                mvc.perform(put(path)
+                                .header("X-Admin-Token", "test-secret")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"url\":\"//relative.example.test/hook\"}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                409,
+                mvc.perform(put(path)
+                                .header("X-Admin-Token", "test-secret")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"url\":\"https://other.example.test/hook\"}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+
+        var updated = mvc.perform(put(path)
+                        .header("X-Admin-Token", "test-secret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://new.example.test/hook\"}"))
+                .andReturn()
+                .getResponse();
+        assertEquals(200, updated.getStatus());
+        assertTrue(updated.getContentAsString().contains(destination.id().toString()));
+        assertTrue(updated.getContentAsString().contains("https://new.example.test/hook"));
+        assertEquals(List.of(destination.id()), store.ingressEndpoint("orders").destinationIds());
+        assertEquals(
+                "https://old.example.test/hook",
+                store.delivery(existingDelivery).targetUrl());
+
+        store.createEvent("after-edit", "{}", new DeliveryStore.EventOrigin(null, null, null), "orders");
+        assertEquals(
+                "https://new.example.test/hook",
+                store.delivery(store.eventDeliveries("after-edit").getFirst()).targetUrl());
+        assertEquals(
+                "https://other.example.test/hook",
+                store.endpoints().stream()
+                        .filter(endpoint -> endpoint.id().equals(other.id()))
+                        .findFirst()
+                        .orElseThrow()
+                        .url());
+    }
+
+    @Test
+    void removingDestinationRequiresUnassignmentAndPreservesHistory() throws Exception {
+        var retired = store.addEndpoint("https://retired.example.test/hook");
+        var replacement = store.addEndpoint("https://replacement.example.test/hook");
+        store.addIngressEndpoint("orders", List.of(retired.id()));
+        store.createEvent("before-removal", "{}", new DeliveryStore.EventOrigin(null, null, null), "orders");
+        UUID oldDelivery = store.eventDeliveries("before-removal").getFirst();
+        var mvc = MockMvcBuilders.webAppContextSetup(webContext).build();
+        String path = "/endpoints/" + retired.id();
+
+        assertEquals(401, mvc.perform(delete(path)).andReturn().getResponse().getStatus());
+        assertEquals(
+                404,
+                mvc.perform(delete("/endpoints/" + UUID.randomUUID()).header("X-Admin-Token", "test-secret"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                409,
+                mvc.perform(delete(path).header("X-Admin-Token", "test-secret"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+
+        store.updateIngressDestinations("orders", List.of(replacement.id()));
+        assertEquals(
+                204,
+                mvc.perform(delete(path).header("X-Admin-Token", "test-secret"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertTrue(
+                store.endpoints().stream().noneMatch(endpoint -> endpoint.id().equals(retired.id())));
+        assertTrue(store.allEndpoints().stream()
+                .anyMatch(endpoint -> endpoint.id().equals(retired.id()) && endpoint.archivedAt() != null));
+        assertEquals(
+                "https://retired.example.test/hook", store.delivery(oldDelivery).targetUrl());
+        assertEquals(
+                409,
+                mvc.perform(put(path)
+                                .header("X-Admin-Token", "test-secret")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"url\":\"https://new.example.test/hook\"}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                400,
+                mvc.perform(put("/ingress-endpoints/orders/destinations")
+                                .header("X-Admin-Token", "test-secret")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"destinationIds\":[\"" + retired.id() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+
+        store.createEvent("after-removal", "{}", new DeliveryStore.EventOrigin(null, null, null), "orders");
+        assertEquals(
+                "https://replacement.example.test/hook",
+                store.delivery(store.eventDeliveries("after-removal").getFirst())
+                        .targetUrl());
+        store.createEvent("shared-after-removal", "{}");
+        assertEquals(1, store.eventDeliveries("shared-after-removal").size());
+
+        assertEquals(
+                200,
+                mvc.perform(post(path + "/restore").header("X-Admin-Token", "test-secret"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(List.of(replacement.id()), store.ingressEndpoint("orders").destinationIds());
+        assertTrue(store.endpoints().stream().anyMatch(endpoint -> endpoint.id().equals(retired.id())));
+    }
+
+    @Test
     void createsNamedIncomingEndpointAndReceivesEventsThroughItsUrl() throws Exception {
         store.addEndpoint("https://receiver.example.test/webhook");
         var mvc = MockMvcBuilders.webAppContextSetup(webContext).build();

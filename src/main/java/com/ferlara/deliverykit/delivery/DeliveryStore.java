@@ -44,7 +44,13 @@ public class DeliveryStore {
         this.entityManager = entityManager;
     }
 
-    public record Endpoint(UUID id, String url) {}
+    public record Endpoint(UUID id, String url, Instant archivedAt) {}
+
+    public static class DestinationConflictException extends RuntimeException {
+        public DestinationConflictException(String message) {
+            super(message);
+        }
+    }
 
     public record IngressEndpoint(String id, Instant createdAt, Instant archivedAt, List<UUID> destinationIds) {}
 
@@ -75,15 +81,59 @@ public class DeliveryStore {
             String error) {}
 
     public List<Endpoint> endpoints() {
+        return endpoints.findAllByArchivedAtIsNullOrderByCreatedAtAsc().stream()
+                .map(this::toEndpoint)
+                .toList();
+    }
+
+    public List<Endpoint> allEndpoints() {
         return endpoints.findAllByOrderByCreatedAtAsc().stream()
-                .map(endpoint -> new Endpoint(endpoint.getId(), endpoint.getUrl()))
+                .map(this::toEndpoint)
                 .toList();
     }
 
     public Endpoint addEndpoint(String url) {
         var endpoint = new WebhookEndpointEntity(UUID.randomUUID(), url);
         endpoints.saveAndFlush(endpoint);
-        return new Endpoint(endpoint.getId(), endpoint.getUrl());
+        return toEndpoint(endpoint);
+    }
+
+    public Endpoint updateEndpoint(UUID id, String url) {
+        var endpoint = endpoints.findById(id).orElse(null);
+        if (endpoint == null) return null;
+        if (endpoint.getArchivedAt() != null)
+            throw new DestinationConflictException("Restore the destination before editing it");
+        endpoint.updateUrl(url);
+        endpoints.saveAndFlush(endpoint);
+        return toEndpoint(endpoint);
+    }
+
+    public Endpoint archiveEndpoint(UUID id) {
+        var endpoint = endpoints.findById(id).orElse(null);
+        if (endpoint == null) return null;
+        if (endpoint.getArchivedAt() != null) return toEndpoint(endpoint);
+        Number assigned = (Number) entityManager
+                .createNativeQuery("SELECT COUNT(*) FROM ingress_endpoint_destinations WHERE destination_id = :id")
+                .setParameter("id", id)
+                .getSingleResult();
+        if (assigned.longValue() > 0)
+            throw new DestinationConflictException("Remove this destination from incoming endpoint settings first");
+        endpoint.archive();
+        endpoints.saveAndFlush(endpoint);
+        return toEndpoint(endpoint);
+    }
+
+    public Endpoint restoreEndpoint(UUID id) {
+        var endpoint = endpoints.findById(id).orElse(null);
+        if (endpoint == null) return null;
+        if (endpoint.getArchivedAt() == null) return toEndpoint(endpoint);
+        endpoint.restore();
+        endpoints.saveAndFlush(endpoint);
+        return toEndpoint(endpoint);
+    }
+
+    private Endpoint toEndpoint(WebhookEndpointEntity endpoint) {
+        return new Endpoint(endpoint.getId(), endpoint.getUrl(), endpoint.getArchivedAt());
     }
 
     public List<IngressEndpoint> ingressEndpoints() {
@@ -148,8 +198,10 @@ public class DeliveryStore {
     private List<UUID> validDestinationIds(List<UUID> destinationIds) {
         List<UUID> unique = destinationIds.stream().distinct().toList();
         if (unique.isEmpty()) throw new IllegalArgumentException("Select at least one destination");
-        if (endpoints.findAllById(unique).size() != unique.size())
-            throw new IllegalArgumentException("Unknown destination ID");
+        if (endpoints.findAllById(unique).stream()
+                        .filter(endpoint -> endpoint.getArchivedAt() == null)
+                        .count()
+                != unique.size()) throw new IllegalArgumentException("Unknown destination ID");
         return unique;
     }
 
@@ -187,11 +239,9 @@ public class DeliveryStore {
                 new WebhookEventEntity(eventId, payload, origin.sourceId(), origin.sourceUrl(), origin.connectionIp()));
         entityManager.flush();
         List<Endpoint> targets = (ingressId == null
-                        ? endpoints.findAllByOrderByCreatedAtAsc()
+                        ? endpoints.findAllByArchivedAtIsNullOrderByCreatedAtAsc()
                         : endpoints.findByIngressId(ingressId))
-                .stream()
-                        .map(endpoint -> new Endpoint(endpoint.getId(), endpoint.getUrl()))
-                        .toList();
+                .stream().map(this::toEndpoint).toList();
         return targets.stream()
                 .map(target -> {
                     UUID id = UUID.randomUUID();

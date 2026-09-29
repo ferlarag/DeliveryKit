@@ -1,6 +1,17 @@
 import { RiAddLine, RiArrowRightLine, RiInformationLine, RiRefreshLine } from "@remixicon/react";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,13 +64,28 @@ export function DestinationsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editUrl, setEditUrl] = useState("");
+  const [editSubmitted, setEditSubmitted] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Endpoint | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [restoreBusyId, setRestoreBusyId] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const validation = submitted ? endpointError(url.trim()) : null;
+  const editValidation = editSubmitted ? endpointError(editUrl.trim()) : null;
+  const activeEndpoints = endpoints.filter((endpoint) => !endpoint.archivedAt);
+  const archivedEndpoints = endpoints.filter((endpoint) => !!endpoint.archivedAt);
 
   useEffect(() => {
     let active = true;
     if (!token) {
       setEndpoints([]);
+      setEditingId(null);
+      setRemoving(null);
       setError(null);
       setLoading(false);
       return;
@@ -68,7 +94,7 @@ export function DestinationsPage() {
     setError(null);
     const timer = window.setTimeout(() => {
       api
-        .endpoints(token)
+        .endpoints(token, true)
         .then(
           (data) => {
             if (active) setEndpoints(data);
@@ -107,6 +133,64 @@ export function DestinationsPage() {
     }
   }
 
+  function startEditing(endpoint: Endpoint) {
+    setEditingId(endpoint.id);
+    setEditUrl(endpoint.url);
+    setEditSubmitted(false);
+    setEditError(null);
+  }
+
+  async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setEditSubmitted(true);
+    setEditError(null);
+    const cleaned = editUrl.trim();
+    if (endpointError(cleaned) || !token || !editingId) return;
+    setEditBusy(true);
+    try {
+      const updated = await api.updateEndpoint(token, editingId, cleaned);
+      setEndpoints((current) =>
+        current.map((endpoint) => (endpoint.id === updated.id ? updated : endpoint)),
+      );
+      setEditingId(null);
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : "Could not update destination.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function removeDestination() {
+    if (!token || !removing) return;
+    setRemoveBusy(true);
+    setRemoveError(null);
+    try {
+      await api.removeEndpoint(token, removing.id);
+      setRemoving(null);
+      setRefreshKey((current) => current + 1);
+    } catch (cause) {
+      setRemoveError(cause instanceof Error ? cause.message : "Could not remove destination.");
+    } finally {
+      setRemoveBusy(false);
+    }
+  }
+
+  async function restoreDestination(id: string) {
+    if (!token) return;
+    setRestoreBusyId(id);
+    setRestoreError(null);
+    try {
+      const restored = await api.restoreEndpoint(token, id);
+      setEndpoints((current) =>
+        current.map((endpoint) => (endpoint.id === id ? restored : endpoint)),
+      );
+    } catch (cause) {
+      setRestoreError(cause instanceof Error ? cause.message : "Could not restore destination.");
+    } finally {
+      setRestoreBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -115,8 +199,8 @@ export function DestinationsPage() {
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Destinations</h1>
         <p className="mt-3 max-w-3xl text-muted-foreground">
-          Register the URLs that receive webhook deliveries. Choose which ones each incoming
-          endpoint uses in its settings.
+          Register URLs that receive webhook deliveries. Edit a URL or remove a destination when it
+          is no longer needed.
         </p>
       </div>
 
@@ -124,8 +208,9 @@ export function DestinationsPage() {
         <RiInformationLine />
         <AlertTitle>Routing lives with incoming endpoints</AlertTitle>
         <AlertDescription>
-          New destinations are available for incoming endpoints to select. Existing routing settings
-          do not change until you edit them. The shared /webhooks URL forwards to all destinations.
+          Incoming endpoints select destinations by ID. Editing a URL affects new deliveries. To
+          remove a destination, first unassign it from incoming endpoints. Existing deliveries and
+          retries keep their original URL.
         </AlertDescription>
       </Alert>
 
@@ -134,7 +219,9 @@ export function DestinationsPage() {
           <CardHeader>
             <div className="space-y-1.5">
               <CardTitle>Registered destinations</CardTitle>
-              <CardDescription>These URLs are loaded from DeliveryKit.</CardDescription>
+              <CardDescription>
+                URL changes apply to new deliveries. Existing deliveries keep their original target.
+              </CardDescription>
             </div>
             <CardAction>
               <Button
@@ -163,9 +250,9 @@ export function DestinationsPage() {
                 <AlertTitle>Could not load destinations</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
-            ) : endpoints.length === 0 ? (
+            ) : activeEndpoints.length === 0 ? (
               <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-                No destinations yet. Add one to begin creating deliveries.
+                No active destinations. Add or restore one to begin creating deliveries.
               </p>
             ) : (
               <Table>
@@ -173,20 +260,89 @@ export function DestinationsPage() {
                   <TableRow>
                     <TableHead>Destination URL</TableHead>
                     <TableHead className="text-right">ID</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {endpoints.map((endpoint) => (
+                  {activeEndpoints.map((endpoint) => (
                     <TableRow key={endpoint.id}>
-                      <TableCell className="max-w-md truncate font-medium" title={endpoint.url}>
-                        {endpoint.url}
-                      </TableCell>
-                      <TableCell
-                        className="text-right font-mono text-xs text-muted-foreground"
-                        title={endpoint.id}
-                      >
-                        {endpoint.id.slice(0, 8)}…
-                      </TableCell>
+                      {editingId === endpoint.id ? (
+                        <TableCell colSpan={3} className="whitespace-normal">
+                          <form onSubmit={saveEdit} className="space-y-3">
+                            <Field data-invalid={!!editValidation}>
+                              <FieldLabel htmlFor="edit-destination-url">
+                                Destination URL
+                              </FieldLabel>
+                              <Input
+                                id="edit-destination-url"
+                                type="url"
+                                value={editUrl}
+                                onChange={(event) => setEditUrl(event.target.value)}
+                                aria-invalid={!!editValidation}
+                                disabled={editBusy}
+                              />
+                              {editValidation && <FieldError>{editValidation}</FieldError>}
+                            </Field>
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="submit" size="sm" disabled={editBusy}>
+                                {editBusy ? "Saving…" : "Save URL"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={editBusy}
+                                onClick={() => setEditingId(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                            {editError && (
+                              <Alert variant="destructive">
+                                <AlertTitle>Destination was not updated</AlertTitle>
+                                <AlertDescription>{editError}</AlertDescription>
+                              </Alert>
+                            )}
+                          </form>
+                        </TableCell>
+                      ) : (
+                        <>
+                          <TableCell className="max-w-md truncate font-medium" title={endpoint.url}>
+                            {endpoint.url}
+                          </TableCell>
+                          <TableCell
+                            className="text-right font-mono text-xs text-muted-foreground"
+                            title={endpoint.id}
+                          >
+                            {endpoint.id.slice(0, 8)}…
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={!!editingId}
+                                onClick={() => startEditing(endpoint)}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                disabled={!!editingId}
+                                onClick={() => {
+                                  setRemoving(endpoint);
+                                  setRemoveError(null);
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -233,10 +389,93 @@ export function DestinationsPage() {
         </Card>
       </div>
 
+      {archivedEndpoints.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Removed destinations</CardTitle>
+            <CardDescription>
+              Preserved for delivery history. Restore one to make it available for new routing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {restoreError && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not restore destination</AlertTitle>
+                <AlertDescription>{restoreError}</AlertDescription>
+              </Alert>
+            )}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Destination URL</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {archivedEndpoints.map((endpoint) => (
+                  <TableRow key={endpoint.id}>
+                    <TableCell className="max-w-md truncate" title={endpoint.url}>
+                      {endpoint.url}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!!restoreBusyId}
+                        onClick={() => restoreDestination(endpoint.id)}
+                      >
+                        {restoreBusyId === endpoint.id ? "Restoring…" : "Restore"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      <AlertDialog
+        open={!!removing}
+        onOpenChange={(open) => {
+          if (!open && !removeBusy) setRemoving(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove destination?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removing?.url} will stop receiving new deliveries. Its delivery history stays intact.
+              You can restore it later. First unassign it from any incoming endpoints that use it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {removeError && (
+            <Alert variant="destructive">
+              <AlertTitle>Destination was not removed</AlertTitle>
+              <AlertDescription>{removeError}</AlertDescription>
+              <Link to="/" className="mt-2 inline-block text-sm underline">
+                Manage incoming endpoints
+              </Link>
+            </Alert>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removeBusy}
+              onClick={removeDestination}
+            >
+              {removeBusy ? "Removing…" : "Remove destination"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Card className="bg-muted/30">
         <CardContent className="flex flex-wrap items-center gap-3 py-5 text-sm">
           <Badge variant="outline">Current flow</Badge>
-          <span>POST /webhooks/{'{endpointId}'}</span>
+          <span>POST /webhooks/{"{endpointId}"}</span>
           <RiArrowRightLine className="size-4 text-muted-foreground" />
           <span>Queue deliveries for that endpoint&apos;s selected destinations</span>
         </CardContent>
