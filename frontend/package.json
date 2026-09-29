@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vp dev",
     "build": "tsc -b && vp build",
+    "test": "vp test run",
     "lint": "vp lint .",
     "format": "vp fmt \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
@@ -37,5 +38,12 @@
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "12.1.0",
+      "onFail": "download"
+    }
   }
 }

@@ -17,5 +17,5 @@
 ## Commands
 
 - Tests: `./mvnw test`
-- Local stack: `cp env.example .env`, set secrets, then `docker compose up --build -d`
+- Local stack: `cp .env.example .env`, set secrets, then `docker compose up --build -d`
 - Build package: `./mvnw package`

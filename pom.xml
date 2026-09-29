@@ -29,7 +29,7 @@
       </configuration>
       <executions>
         <execution><id>install-node</id><phase>generate-resources</phase><goals><goal>install-node-and-npm</goal></goals>
-          <configuration><nodeVersion>v24.21.0</nodeVersion></configuration>
+          <configuration><nodeVersion>v24.21.0</nodeVersion><npmVersion>12.1.0</npmVersion></configuration>
         </execution>
         <execution><id>install-frontend</id><phase>generate-resources</phase><goals><goal>npm</goal></goals>
           <configuration><arguments>ci</arguments></configuration>
