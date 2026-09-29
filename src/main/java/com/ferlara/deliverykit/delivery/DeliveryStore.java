@@ -46,7 +46,7 @@ public class DeliveryStore {
 
     public record Endpoint(UUID id, String url) {}
 
-    public record IngressEndpoint(String id, Instant createdAt) {}
+    public record IngressEndpoint(String id, Instant createdAt, Instant archivedAt, List<UUID> destinationIds) {}
 
     public record Delivery(
             UUID id,
@@ -88,20 +88,84 @@ public class DeliveryStore {
 
     public List<IngressEndpoint> ingressEndpoints() {
         return ingressEndpoints.findAllByOrderByCreatedAtAscIdAsc().stream()
-                .map(endpoint -> new IngressEndpoint(endpoint.getId(), endpoint.getCreatedAt()))
+                .map(this::toIngressEndpoint)
                 .toList();
     }
 
-    public IngressEndpoint addIngressEndpoint(String id) {
-        var endpoint = new IngressEndpointEntity(id);
-        entityManager.persist(endpoint);
-        entityManager.flush();
-        entityManager.refresh(endpoint);
-        return new IngressEndpoint(endpoint.getId(), endpoint.getCreatedAt());
+    public IngressEndpoint ingressEndpoint(String id) {
+        return ingressEndpoints.findById(id).map(this::toIngressEndpoint).orElse(null);
     }
 
     public boolean ingressEndpointExists(String id) {
         return ingressEndpoints.existsById(id);
+    }
+
+    public IngressEndpoint addIngressEndpoint(String id, List<UUID> destinationIds) {
+        List<UUID> selected = validDestinationIds(destinationIds);
+        var endpoint = new IngressEndpointEntity(id);
+        entityManager.persist(endpoint);
+        entityManager.flush();
+        replaceRoutes(id, selected);
+        entityManager.refresh(endpoint);
+        return toIngressEndpoint(endpoint);
+    }
+
+    public IngressEndpoint updateIngressDestinations(String id, List<UUID> destinationIds) {
+        if (!ingressEndpoints.existsById(id)) return null;
+        replaceRoutes(id, validDestinationIds(destinationIds));
+        return ingressEndpoint(id);
+    }
+
+    public IngressEndpoint archiveIngressEndpoint(String id) {
+        var endpoint = ingressEndpoints.findById(id).orElse(null);
+        if (endpoint == null) return null;
+        if (endpoint.getArchivedAt() == null) endpoint.archive();
+        ingressEndpoints.saveAndFlush(endpoint);
+        return toIngressEndpoint(endpoint);
+    }
+
+    public IngressEndpoint restoreIngressEndpoint(String id) {
+        var endpoint = ingressEndpoints.findById(id).orElse(null);
+        if (endpoint == null) return null;
+        endpoint.restore();
+        ingressEndpoints.saveAndFlush(endpoint);
+        return toIngressEndpoint(endpoint);
+    }
+
+    public boolean deleteUnusedIngressEndpoint(String id) {
+        if (events.existsBySourceId(id)) return false;
+        ingressEndpoints.deleteById(id);
+        return true;
+    }
+
+    private IngressEndpoint toIngressEndpoint(IngressEndpointEntity endpoint) {
+        List<UUID> destinationIds = endpoints.findByIngressId(endpoint.getId()).stream()
+                .map(WebhookEndpointEntity::getId)
+                .toList();
+        return new IngressEndpoint(endpoint.getId(), endpoint.getCreatedAt(), endpoint.getArchivedAt(), destinationIds);
+    }
+
+    private List<UUID> validDestinationIds(List<UUID> destinationIds) {
+        List<UUID> unique = destinationIds.stream().distinct().toList();
+        if (unique.isEmpty()) throw new IllegalArgumentException("Select at least one destination");
+        if (endpoints.findAllById(unique).size() != unique.size())
+            throw new IllegalArgumentException("Unknown destination ID");
+        return unique;
+    }
+
+    private void replaceRoutes(String ingressId, List<UUID> destinationIds) {
+        entityManager
+                .createNativeQuery("DELETE FROM ingress_endpoint_destinations WHERE ingress_id = :id")
+                .setParameter("id", ingressId)
+                .executeUpdate();
+        for (UUID destinationId : destinationIds) {
+            entityManager
+                    .createNativeQuery(
+                            "INSERT INTO ingress_endpoint_destinations (ingress_id, destination_id) VALUES (:ingressId, :destinationId)")
+                    .setParameter("ingressId", ingressId)
+                    .setParameter("destinationId", destinationId)
+                    .executeUpdate();
+        }
     }
 
     public String eventPayload(String eventId) {
@@ -113,12 +177,21 @@ public class DeliveryStore {
     }
 
     public List<UUID> createEvent(String eventId, String payload, EventOrigin origin) {
+        return createEvent(eventId, payload, origin, null);
+    }
+
+    public List<UUID> createEvent(String eventId, String payload, EventOrigin origin, String ingressId) {
         // An assigned ID makes repository.save() merge an existing row. Persist must INSERT
         // so a duplicate event ID fails instead of replacing the original payload.
         entityManager.persist(
                 new WebhookEventEntity(eventId, payload, origin.sourceId(), origin.sourceUrl(), origin.connectionIp()));
         entityManager.flush();
-        List<Endpoint> targets = endpoints();
+        List<Endpoint> targets = (ingressId == null
+                        ? endpoints.findAllByOrderByCreatedAtAsc()
+                        : endpoints.findByIngressId(ingressId))
+                .stream()
+                        .map(endpoint -> new Endpoint(endpoint.getId(), endpoint.getUrl()))
+                        .toList();
         return targets.stream()
                 .map(target -> {
                     UUID id = UUID.randomUUID();

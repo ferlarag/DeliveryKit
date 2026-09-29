@@ -115,17 +115,17 @@ export function DestinationsPage() {
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Destinations</h1>
         <p className="mt-3 max-w-3xl text-muted-foreground">
-          Register the URLs that receive webhook deliveries. Every accepted event currently goes to
-          every registered destination.
+          Register the URLs that receive webhook deliveries. Choose which ones each incoming
+          endpoint uses in its settings.
         </p>
       </div>
 
       <Alert>
         <RiInformationLine />
-        <AlertTitle>Global forwarding only</AlertTitle>
+        <AlertTitle>Routing lives with incoming endpoints</AlertTitle>
         <AlertDescription>
-          Per-webhook destination choices, editing, and removal are not available in the current
-          API. New destinations receive future events only.
+          New destinations are available for incoming endpoints to select. Existing routing settings
+          do not change until you edit them. The shared /webhooks URL forwards to all destinations.
         </AlertDescription>
       </Alert>
 
@@ -236,9 +236,9 @@ export function DestinationsPage() {
       <Card className="bg-muted/30">
         <CardContent className="flex flex-wrap items-center gap-3 py-5 text-sm">
           <Badge variant="outline">Current flow</Badge>
-          <span>POST /webhooks</span>
+          <span>POST /webhooks/{'{endpointId}'}</span>
           <RiArrowRightLine className="size-4 text-muted-foreground" />
-          <span>Queue one delivery for each destination above</span>
+          <span>Queue deliveries for that endpoint&apos;s selected destinations</span>
         </CardContent>
       </Card>
     </div>

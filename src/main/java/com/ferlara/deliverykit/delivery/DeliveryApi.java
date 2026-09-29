@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -42,25 +43,29 @@ public class DeliveryApi {
 
     public record EndpointRequest(@NotBlank String url) {}
 
-    public record IngressEndpointRequest(@NotBlank String id) {}
+    public record IngressEndpointRequest(@NotBlank String id, List<UUID> destinationIds) {}
+
+    public record RouteRequest(@NotNull List<UUID> destinationIds) {}
 
     public record EventResponse(String eventId, List<UUID> deliveryIds) {}
 
     @PostMapping("/webhooks")
     public ResponseEntity<EventResponse> postWebhook(
             @Valid @RequestBody EventRequest request, HttpServletRequest httpRequest) {
-        return receiveWebhook(request, httpRequest, optionalSourceId(request.sourceId()));
+        return receiveWebhook(request, httpRequest, optionalSourceId(request.sourceId()), null);
     }
 
     @PostMapping("/webhooks/{endpointId}")
     public ResponseEntity<EventResponse> postIngressWebhook(
             @PathVariable String endpointId, @Valid @RequestBody EventRequest request, HttpServletRequest httpRequest) {
-        if (!store.ingressEndpointExists(endpointId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        return receiveWebhook(request, httpRequest, endpointId);
+        var endpoint = store.ingressEndpoint(endpointId);
+        if (endpoint == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        if (endpoint.archivedAt() != null) throw new ResponseStatusException(HttpStatus.GONE, "Endpoint is archived");
+        return receiveWebhook(request, httpRequest, endpointId, endpointId);
     }
 
     private ResponseEntity<EventResponse> receiveWebhook(
-            EventRequest request, HttpServletRequest httpRequest, String sourceId) {
+            EventRequest request, HttpServletRequest httpRequest, String sourceId, String ingressId) {
         if (request.eventId().length() > 200)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventId exceeds 200 characters");
         String sourceUrl = optionalSourceUrl(request.sourceUrl());
@@ -82,7 +87,8 @@ public class DeliveryApi {
                             store.createEvent(
                                     request.eventId(),
                                     payload,
-                                    new DeliveryStore.EventOrigin(sourceId, sourceUrl, connectionIp))));
+                                    new DeliveryStore.EventOrigin(sourceId, sourceUrl, connectionIp),
+                                    ingressId)));
         } catch (DataIntegrityViolationException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "eventId already exists; retry the request", e);
         }
@@ -108,10 +114,58 @@ public class DeliveryApi {
         if (store.ingressEndpointExists(id))
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Incoming endpoint ID already exists");
         try {
-            return ResponseEntity.status(HttpStatus.CREATED).body(store.addIngressEndpoint(id));
+            List<UUID> destinationIds = request.destinationIds() == null
+                    ? store.endpoints().stream().map(DeliveryStore.Endpoint::id).toList()
+                    : request.destinationIds();
+            return ResponseEntity.status(HttpStatus.CREATED).body(store.addIngressEndpoint(id, destinationIds));
         } catch (DataIntegrityViolationException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Incoming endpoint ID already exists", e);
+        } catch (IllegalArgumentException | InvalidDataAccessApiUsageException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
+    }
+
+    @PutMapping("/ingress-endpoints/{id}/destinations")
+    public DeliveryStore.IngressEndpoint updateIngressDestinations(
+            @PathVariable String id,
+            @Valid @RequestBody RouteRequest request,
+            @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        try {
+            var endpoint = store.updateIngressDestinations(id, request.destinationIds());
+            if (endpoint == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+            return endpoint;
+        } catch (IllegalArgumentException | InvalidDataAccessApiUsageException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    @PostMapping("/ingress-endpoints/{id}/archive")
+    public DeliveryStore.IngressEndpoint archiveIngressEndpoint(
+            @PathVariable String id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        var endpoint = store.archiveIngressEndpoint(id);
+        if (endpoint == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return endpoint;
+    }
+
+    @PostMapping("/ingress-endpoints/{id}/restore")
+    public DeliveryStore.IngressEndpoint restoreIngressEndpoint(
+            @PathVariable String id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        var endpoint = store.restoreIngressEndpoint(id);
+        if (endpoint == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return endpoint;
+    }
+
+    @DeleteMapping("/ingress-endpoints/{id}")
+    public ResponseEntity<Void> deleteIngressEndpoint(
+            @PathVariable String id, @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        if (store.ingressEndpoint(id) == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        if (!store.deleteUnusedIngressEndpoint(id))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Archive an endpoint that has received events");
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/deliveries/{id}")

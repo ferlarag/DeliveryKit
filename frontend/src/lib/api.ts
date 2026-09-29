@@ -1,5 +1,10 @@
 export type Endpoint = { id: string; url: string };
-export type IngressEndpoint = { id: string; createdAt: string };
+export type IngressEndpoint = {
+  id: string;
+  createdAt: string;
+  archivedAt: string | null;
+  destinationIds: string[];
+};
 
 export type Delivery = {
   id: string;
@@ -48,11 +53,32 @@ function adminHeaders(token: string): HeadersInit {
 export const api = {
   ingressEndpoints: (token: string) =>
     request<IngressEndpoint[]>("/ingress-endpoints", { headers: adminHeaders(token) }),
-  addIngressEndpoint: (token: string, id: string) =>
+  addIngressEndpoint: (token: string, id: string, destinationIds: string[]) =>
     request<IngressEndpoint>("/ingress-endpoints", {
       method: "POST",
       headers: adminHeaders(token),
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, destinationIds }),
+    }),
+  updateIngressDestinations: (token: string, id: string, destinationIds: string[]) =>
+    request<IngressEndpoint>(`/ingress-endpoints/${encodeURIComponent(id)}/destinations`, {
+      method: "PUT",
+      headers: adminHeaders(token),
+      body: JSON.stringify({ destinationIds }),
+    }),
+  archiveIngressEndpoint: (token: string, id: string) =>
+    request<IngressEndpoint>(`/ingress-endpoints/${encodeURIComponent(id)}/archive`, {
+      method: "POST",
+      headers: adminHeaders(token),
+    }),
+  restoreIngressEndpoint: (token: string, id: string) =>
+    request<IngressEndpoint>(`/ingress-endpoints/${encodeURIComponent(id)}/restore`, {
+      method: "POST",
+      headers: adminHeaders(token),
+    }),
+  deleteIngressEndpoint: (token: string, id: string) =>
+    request<void>(`/ingress-endpoints/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: adminHeaders(token),
     }),
   endpoints: (token: string) => request<Endpoint[]>("/endpoints", { headers: adminHeaders(token) }),
   addEndpoint: (token: string, url: string) =>

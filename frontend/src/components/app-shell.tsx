@@ -40,7 +40,10 @@ export function AppShell() {
             className="col-span-2 row-start-2 flex min-w-0 justify-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:col-span-1 lg:col-start-2 lg:row-start-1"
           >
             {navigation.map(({ to, label, icon: Icon }) => {
-              const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
+              const active =
+                to === "/"
+                  ? pathname === "/" || pathname.startsWith("/incoming/")
+                  : pathname.startsWith(to);
               return (
                 <Link
                   key={to}

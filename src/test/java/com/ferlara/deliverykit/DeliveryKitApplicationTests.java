@@ -3,8 +3,10 @@ package com.ferlara.deliverykit;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.ferlara.deliverykit.delivery.DeliveryApi;
 import com.ferlara.deliverykit.delivery.DeliveryAttemptRepository;
@@ -21,6 +23,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,8 +96,8 @@ class DeliveryKitApplicationTests {
         attempts.deleteAll();
         deliveries.deleteAll();
         events.deleteAll();
-        endpoints.deleteAll();
         ingressEndpoints.deleteAll();
+        endpoints.deleteAll();
     }
 
     @Test
@@ -161,6 +164,173 @@ class DeliveryKitApplicationTests {
         var delivery = store.delivery(store.eventDeliveries(eventId).getFirst());
         assertEquals(id, delivery.sourceId());
         assertEquals(1, store.ingressEndpoints().size());
+    }
+
+    @Test
+    void namedEndpointRoutesOnlyToSelectedDestinationsAndCanBeArchived() throws Exception {
+        var crm = store.addEndpoint("https://crm.example.test/webhook");
+        var billing = store.addEndpoint("https://billing.example.test/webhook");
+        var analytics = store.addEndpoint("https://analytics.example.test/webhook");
+        var mvc = MockMvcBuilders.webAppContextSetup(webContext).build();
+        String id = "orders";
+        String routePath = "/ingress-endpoints/" + id;
+        String token = "test-secret";
+
+        assertEquals(
+                201,
+                mvc.perform(post("/ingress-endpoints")
+                                .header("X-Admin-Token", token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"id\":\"orders\",\"destinationIds\":[\"" + crm.id() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(List.of(crm.id()), store.ingressEndpoint(id).destinationIds());
+        var listed = mvc.perform(get("/ingress-endpoints").header("X-Admin-Token", token))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertTrue(listed.contains("\"destinationIds\":[\"" + crm.id() + "\"]"));
+        assertEquals(
+                401,
+                mvc.perform(put(routePath + "/destinations")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"destinationIds\":[\"" + billing.id() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                400,
+                mvc.perform(put(routePath + "/destinations")
+                                .header("X-Admin-Token", token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"destinationIds\":[]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                400,
+                mvc.perform(put(routePath + "/destinations")
+                                .header("X-Admin-Token", token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"destinationIds\":[\"" + UUID.randomUUID() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(List.of(crm.id()), store.ingressEndpoint(id).destinationIds());
+
+        String firstEvent = "route-one-" + UUID.randomUUID();
+        assertEquals(
+                202,
+                mvc.perform(post("/webhooks/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"eventId\":\"" + firstEvent + "\",\"payload\":{}}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(1, store.eventDeliveries(firstEvent).size());
+        assertEquals(
+                crm.url(),
+                store.delivery(store.eventDeliveries(firstEvent).getFirst()).targetUrl());
+
+        String sharedEvent = "shared-" + UUID.randomUUID();
+        assertEquals(
+                202,
+                mvc.perform(post("/webhooks")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"eventId\":\"" + sharedEvent + "\",\"payload\":{}}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(3, store.eventDeliveries(sharedEvent).size());
+
+        assertEquals(
+                200,
+                mvc.perform(put(routePath + "/destinations")
+                                .header("X-Admin-Token", token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"destinationIds\":[\"" + crm.id() + "\",\"" + billing.id() + "\",\""
+                                        + analytics.id() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        String allEvent = "route-all-" + UUID.randomUUID();
+        assertEquals(
+                202,
+                mvc.perform(post("/webhooks/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"eventId\":\"" + allEvent + "\",\"payload\":{}}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(3, store.eventDeliveries(allEvent).size());
+        assertEquals(1, store.eventDeliveries(firstEvent).size());
+
+        assertEquals(
+                200,
+                mvc.perform(put(routePath + "/destinations")
+                                .header("X-Admin-Token", token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"destinationIds\":[\"" + billing.id() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                200,
+                mvc.perform(post(routePath + "/archive").header("X-Admin-Token", token))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        String archivedEvent = "archived-" + UUID.randomUUID();
+        assertEquals(
+                410,
+                mvc.perform(post("/webhooks/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"eventId\":\"" + archivedEvent + "\",\"payload\":{}}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertFalse(events.existsById(archivedEvent));
+        assertEquals(
+                409,
+                mvc.perform(delete(routePath).header("X-Admin-Token", token))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                200,
+                mvc.perform(post(routePath + "/restore").header("X-Admin-Token", token))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                202,
+                mvc.perform(post("/webhooks/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"eventId\":\"" + archivedEvent + "\",\"payload\":{}}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                billing.url(),
+                store.delivery(store.eventDeliveries(archivedEvent).getFirst()).targetUrl());
+
+        assertEquals(
+                201,
+                mvc.perform(post("/ingress-endpoints")
+                                .header("X-Admin-Token", token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"id\":\"unused\",\"destinationIds\":[\"" + billing.id() + "\"]}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                204,
+                mvc.perform(delete("/ingress-endpoints/unused").header("X-Admin-Token", token))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertNull(store.ingressEndpoint("unused"));
     }
 
     @Test

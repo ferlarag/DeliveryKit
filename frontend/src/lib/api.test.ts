@@ -95,7 +95,7 @@ describe("DeliveryKit API client", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.addIngressEndpoint("secret", "orders-prod");
+    await api.addIngressEndpoint("secret", "orders-prod", ["destination-1"]);
     await api.submitEvent("evt-3", { kind: "demo" }, undefined, "orders-prod");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -104,13 +104,40 @@ describe("DeliveryKit API client", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
-        body: JSON.stringify({ id: "orders-prod" }),
+        body: JSON.stringify({ id: "orders-prod", destinationIds: ["destination-1"] }),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/webhooks/orders-prod",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("saves routing settings and archives an incoming endpoint", async () => {
+    const endpoint = {
+      id: "orders-prod",
+      createdAt: "2026-09-29T00:00:00Z",
+      archivedAt: null,
+      destinationIds: ["destination-1"],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(endpoint), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...endpoint, archivedAt: "2026-09-29T01:00:00Z" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.updateIngressDestinations("secret", "orders-prod", ["destination-1"]);
+    await api.archiveIngressEndpoint("secret", "orders-prod");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/ingress-endpoints/orders-prod/destinations",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ destinationIds: ["destination-1"] }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/ingress-endpoints/orders-prod/archive",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ "X-Admin-Token": "secret" }) }),
     );
   });
 

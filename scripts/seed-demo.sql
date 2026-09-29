@@ -1,11 +1,6 @@
 -- Synthetic, deterministic local demo data. Safe to rerun.
 BEGIN;
 
-INSERT INTO ingress_endpoints (id, created_at)
-SELECT 'demo-medium-v1-' || slug, TIMESTAMP WITH TIME ZONE '2025-01-01 00:00:00+00'
-FROM (VALUES ('storefront'), ('billing'), ('crm'), ('inventory'), ('support')) AS sources(slug)
-ON CONFLICT (id) DO NOTHING;
-
 WITH destinations(position, slug, url) AS (
     VALUES
         (1, 'crm', 'https://crm.example.invalid/hooks/deliverykit'),
@@ -18,6 +13,24 @@ INSERT INTO webhook_endpoints (id, url, created_at)
 SELECT md5('deliverykit-medium-v1:endpoint:' || slug)::uuid, url, CURRENT_TIMESTAMP - INTERVAL '30 days'
 FROM destinations
 ON CONFLICT (id) DO NOTHING;
+
+-- Route only newly seeded incoming endpoints; reruns preserve user changes.
+WITH created_ingress AS (
+    INSERT INTO ingress_endpoints (id, created_at)
+    SELECT 'demo-medium-v1-' || slug, TIMESTAMP WITH TIME ZONE '2025-01-01 00:00:00+00'
+    FROM (VALUES ('storefront'), ('billing'), ('crm'), ('inventory'), ('support')) AS sources(slug)
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id
+)
+INSERT INTO ingress_endpoint_destinations (ingress_id, destination_id)
+SELECT ingress.id, destination.id
+FROM created_ingress AS ingress
+CROSS JOIN webhook_endpoints AS destination
+WHERE destination.id IN (
+    SELECT md5('deliverykit-medium-v1:endpoint:' || slug)::uuid
+    FROM (VALUES ('crm'), ('billing'), ('inventory'), ('support'), ('analytics')) AS destinations(slug)
+)
+ON CONFLICT DO NOTHING;
 
 WITH demo_events AS (
     SELECT

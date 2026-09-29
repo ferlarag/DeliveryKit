@@ -13,6 +13,7 @@ import { DeliveryDetailPage } from "@/pages/delivery-detail-page";
 import { DeliveriesPage } from "@/pages/deliveries-page";
 import { DestinationsPage } from "@/pages/destinations-page";
 import { IncomingPage } from "@/pages/incoming-page";
+import { IncomingEndpointDetailPage } from "@/pages/incoming-endpoint-detail-page";
 import "./index.css";
 
 const rootRoute = createRootRoute({ component: AppShell });
@@ -21,6 +22,15 @@ const incomingRoute = createRoute({
   path: "/",
   component: IncomingPage,
 });
+const incomingDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/incoming/$endpointId",
+  component: IncomingDetailRoute,
+});
+function IncomingDetailRoute() {
+  const { endpointId } = incomingDetailRoute.useParams();
+  return <IncomingEndpointDetailPage key={endpointId} id={endpointId} />;
+}
 const destinationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/destinations",
@@ -45,6 +55,7 @@ function DetailRoute() {
 const router = createRouter({
   routeTree: rootRoute.addChildren([
     incomingRoute,
+    incomingDetailRoute,
     destinationsRoute,
     deliveriesRoute,
     detailRoute,

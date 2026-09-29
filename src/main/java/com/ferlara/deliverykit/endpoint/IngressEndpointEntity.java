@@ -21,7 +21,18 @@ public class IngressEndpointEntity {
     @Column(name = "created_at", insertable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     public IngressEndpointEntity(String id) {
         this.id = id;
+    }
+
+    public void archive() {
+        this.archivedAt = Instant.now();
+    }
+
+    public void restore() {
+        this.archivedAt = null;
     }
 }

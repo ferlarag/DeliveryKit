@@ -98,11 +98,18 @@ require the same token. The recipient receives `X-Webhook-Event-Id` and a stable
 
 `GET /ingress-endpoints` lists reusable incoming endpoints; `POST /ingress-endpoints` creates one with a unique
 1–64 character lowercase ID. Both require `X-Admin-Token`. Senders POST events to `/webhooks/{endpointId}`;
-DeliveryKit records that endpoint ID as the event source. The shared `/webhooks` URL remains available.
+DeliveryKit records that endpoint ID as the event source. Create endpoints with `destinationIds` to choose where
+new events go, or update them with `PUT /ingress-endpoints/{id}/destinations`. Select at least one existing
+destination. Existing endpoints keep their previous all-destination routing until changed. Archive and restore with
+the corresponding `/archive` and
+`/restore` POST routes. Archived URLs return HTTP 410; already queued deliveries continue.
+`DELETE /ingress-endpoints/{id}` is allowed only before the endpoint receives an event. The shared `/webhooks` URL
+remains available and forwards to every destination.
 
 Event submissions may include `sourceId` (up to 200 characters) and `sourceUrl` (an HTTP or HTTPS URL, up to 2048
-characters). These are caller-provided claims, not authenticated identities. Delivery detail also records the direct
-connection IP from the original request; behind a proxy this is the proxy's IP. Forwarded IP headers are not trusted.
+characters). On named endpoint URLs, the endpoint ID is recorded as `sourceId`; on the shared URL, any caller-provided
+`sourceId` is a claim, not an authenticated identity. Delivery detail also records the direct connection IP from
+the original request; behind a proxy this is the proxy's IP. Forwarded IP headers are not trusted.
 Existing events have empty source fields after migration. Rerun the local demo seed to fill those fields for demo events.
 
 Flyway owns the schema in `src/main/resources/db/migration`. Hibernate validates it at startup. The initial migration is

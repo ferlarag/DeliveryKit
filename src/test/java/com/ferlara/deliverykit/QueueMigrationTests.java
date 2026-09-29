@@ -11,6 +11,31 @@ import org.junit.jupiter.api.Test;
 
 class QueueMigrationTests {
     @Test
+    void routingMigrationPreservesExistingIncomingForwarding() throws Exception {
+        String url = "jdbc:h2:mem:ingress-routing-" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url, "sa", "").target("5").load().migrate();
+
+        try (var connection = DriverManager.getConnection(url, "sa", "");
+                var statement = connection.createStatement()) {
+            statement.executeUpdate(
+                    "INSERT INTO webhook_endpoints (id, url) VALUES ('00000000-0000-0000-0000-000000000001', 'https://one.example.test/hook')");
+            statement.executeUpdate(
+                    "INSERT INTO webhook_endpoints (id, url) VALUES ('00000000-0000-0000-0000-000000000002', 'https://two.example.test/hook')");
+            statement.executeUpdate("INSERT INTO ingress_endpoints (id) VALUES ('orders')");
+        }
+
+        Flyway.configure().dataSource(url, "sa", "").load().migrate();
+
+        try (var connection = DriverManager.getConnection(url, "sa", "");
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery(
+                        "SELECT COUNT(*) FROM ingress_endpoint_destinations WHERE ingress_id = 'orders'")) {
+            assertTrue(rows.next());
+            assertEquals(2, rows.getInt(1));
+        }
+    }
+
+    @Test
     void renameKeepsPendingQueueItems() throws Exception {
         String url = "jdbc:h2:mem:queue-migration-" + UUID.randomUUID() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1";
         Flyway.configure().dataSource(url, "sa", "").target("1").load().migrate();
