@@ -290,7 +290,7 @@ export function DestinationsPage() {
                         {endpoint.url}
                       </TableCell>
                       <TableCell
-                        className="text-right font-mono text-xs text-muted-foreground"
+                        className="text-right text-sm text-muted-foreground"
                         title={endpoint.id}
                       >
                         {endpoint.id.slice(0, 8)}…
@@ -433,7 +433,7 @@ export function DestinationsPage() {
           </DialogHeader>
           <div className="space-y-1.5 text-sm">
             <span className="text-muted-foreground">Destination ID</span>
-            <p className="break-all font-mono text-xs">{viewing?.id}</p>
+            <p className="break-all text-sm">{viewing?.id}</p>
           </div>
           <form onSubmit={saveEdit} className="space-y-5">
             <Field data-invalid={!!editValidation}>

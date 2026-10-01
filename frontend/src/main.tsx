@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/app-shell";
 import { ThemeProvider } from "@/components/theme-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { DeliveryDetailPage } from "@/pages/delivery-detail-page";
 import { DeliveriesPage } from "@/pages/deliveries-page";
 import { DestinationsPage } from "@/pages/destinations-page";
@@ -72,7 +73,9 @@ declare module "@tanstack/react-router" {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
-      <RouterProvider router={router} />
+      <TooltipProvider>
+        <RouterProvider router={router} />
+      </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,
 );

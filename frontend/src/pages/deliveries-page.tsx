@@ -402,7 +402,7 @@ export function DeliveriesPage() {
               <TableBody>
                 {result.items.map((delivery) => (
                   <TableRow key={delivery.id}>
-                    <TableCell className="font-mono text-xs" title={delivery.id}>
+                    <TableCell className="text-sm" title={delivery.id}>
                       {delivery.id.slice(0, 8)}…
                     </TableCell>
                     <TableCell className="max-w-44 truncate" title={delivery.eventId}>

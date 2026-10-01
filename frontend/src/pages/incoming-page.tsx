@@ -2,6 +2,7 @@ import { RiAddLine, RiRefreshLine } from "@remixicon/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { DestinationChoices } from "@/components/destination-choices";
+import { IncomingEndpointId } from "@/components/incoming-endpoint-id";
 import { IncomingEndpointStatus } from "@/components/incoming-endpoint-status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -206,8 +207,8 @@ export function IncomingPage() {
               <TableBody>
                 {endpoints.map((endpoint) => (
                   <TableRow key={endpoint.id}>
-                    <TableCell className="max-w-56 truncate font-mono" title={endpoint.id}>
-                      {endpoint.id}
+                    <TableCell className="max-w-56" title={endpoint.id}>
+                      <IncomingEndpointId id={endpoint.id} className="font-medium" />
                     </TableCell>
                     <TableCell>
                       <IncomingEndpointStatus archived={!!endpoint.archivedAt} />

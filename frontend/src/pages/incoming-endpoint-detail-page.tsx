@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CopyBlock } from "@/components/copy-block";
 import { DestinationChoices } from "@/components/destination-choices";
+import { IncomingEndpointId } from "@/components/incoming-endpoint-id";
 import { IncomingEndpointStatus } from "@/components/incoming-endpoint-status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { api, type Endpoint, type EventResponse, type IngressEndpoint } from "@/lib/api";
 import { useAdminToken } from "@/lib/use-admin-token";
+import { webhookUrlFor } from "@/lib/webhook-url";
 
 const eventIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 function eventIdError(value: string) {
@@ -117,10 +119,7 @@ export function IncomingEndpointDetailPage({ id }: { id: string }) {
   const payloadError = submitted ? payloadResult.error : null;
   const sourceUrlValidation = sourceUrlError(sourceUrl.trim());
   const urlError = submitted ? sourceUrlValidation : null;
-  const apiOrigin =
-    import.meta.env.VITE_API_ORIGIN ||
-    (import.meta.env.DEV ? "http://localhost:8080" : window.location.origin);
-  const webhookUrl = new URL(`/webhooks/${encodeURIComponent(id)}`, apiOrigin).toString();
+  const webhookUrl = webhookUrlFor(id);
   const requestBody = payloadResult.error
     ? "Fix the payload JSON to preview the request body."
     : JSON.stringify(
@@ -225,8 +224,8 @@ export function IncomingEndpointDetailPage({ id }: { id: string }) {
           <RiArrowLeftLine /> Incoming endpoints
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="min-w-0 break-all text-3xl font-semibold tracking-tight sm:text-4xl">
-            {id}
+          <h1 className="min-w-0 text-3xl font-semibold tracking-tight sm:text-4xl">
+            <IncomingEndpointId id={id} />
           </h1>
           {endpoint && <IncomingEndpointStatus archived={!!endpoint.archivedAt} />}
         </div>
@@ -463,7 +462,7 @@ export function IncomingEndpointDetailPage({ id }: { id: string }) {
                             key={deliveryId}
                             to="/deliveries/$deliveryId"
                             params={{ deliveryId }}
-                            className="font-mono text-xs text-primary underline-offset-4 hover:underline"
+                            className="text-sm text-primary underline-offset-4 hover:underline"
                           >
                             {deliveryId}
                           </Link>
