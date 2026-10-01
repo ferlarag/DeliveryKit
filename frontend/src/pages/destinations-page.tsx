@@ -293,7 +293,7 @@ export function DestinationsPage() {
                       <TableCell className="w-44 min-w-44 max-w-44 text-right text-sm text-muted-foreground">
                         <CopyableText
                           value={endpoint.id}
-                          displayValue={`${endpoint.id.slice(0, 8)}…`}
+                          displayValue={endpoint.id}
                           label="destination ID"
                           className="w-full min-w-0 justify-end"
                         />
