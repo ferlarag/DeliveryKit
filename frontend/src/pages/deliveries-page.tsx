@@ -1,5 +1,5 @@
-import { RiArrowRightLine, RiInformationLine, RiRefreshLine, RiSearchLine } from "@remixicon/react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { RiAddLine, RiArrowRightLine, RiCloseLine, RiRefreshLine } from "@remixicon/react";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { DeliveryStatus } from "@/components/delivery-status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -13,8 +13,29 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -24,104 +45,179 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type Delivery } from "@/lib/api";
-import {
-  isDeliveryId,
-  parseDemoDeliveryIds,
-  trackDeliveryIds,
-  trackedDeliveryIds,
-} from "@/lib/delivery-tracking";
+import { api, type DeliveryFilters, type DeliveryPage } from "@/lib/api";
+import { useAdminToken } from "@/lib/use-admin-token";
 
-type Row = { id: string; delivery?: Delivery; error?: string };
+type FilterDraft = Record<keyof Required<DeliveryFilters>, string>;
+const emptyFilters: FilterDraft = {
+  deliveryId: "",
+  eventId: "",
+  destination: "",
+  status: "",
+  attemptsMin: "",
+  attemptsMax: "",
+  createdFrom: "",
+  createdBefore: "",
+  updatedFrom: "",
+  updatedBefore: "",
+};
+const deliveryIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const filterOptions: {
+  key: keyof FilterDraft;
+  label: string;
+  type: "text" | "number" | "datetime-local" | "status";
+  placeholder?: string;
+}[] = [
+  { key: "deliveryId", label: "Delivery ID", type: "text", placeholder: "Delivery UUID" },
+  { key: "eventId", label: "Event ID contains", type: "text", placeholder: "e.g. order" },
+  {
+    key: "destination",
+    label: "Destination URL or ID",
+    type: "text",
+    placeholder: "e.g. billing.example.com",
+  },
+  { key: "status", label: "Status", type: "status" },
+  { key: "attemptsMin", label: "Attempts, at least", type: "number" },
+  { key: "attemptsMax", label: "Attempts, at most", type: "number" },
+  { key: "createdFrom", label: "Created from", type: "datetime-local" },
+  { key: "createdBefore", label: "Created before", type: "datetime-local" },
+  { key: "updatedFrom", label: "Updated from", type: "datetime-local" },
+  { key: "updatedBefore", label: "Updated before", type: "datetime-local" },
+];
+
+function formatTime(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function toIso(value: string) {
+  return value ? new Date(value).toISOString() : "";
+}
+
+function toApiFilters(values: FilterDraft): DeliveryFilters {
+  return {
+    ...values,
+    createdFrom: toIso(values.createdFrom),
+    createdBefore: toIso(values.createdBefore),
+    updatedFrom: toIso(values.updatedFrom),
+    updatedBefore: toIso(values.updatedBefore),
+  };
+}
+
+function validateFilters(values: FilterDraft): string | null {
+  if (values.deliveryId && !deliveryIdPattern.test(values.deliveryId))
+    return "Enter a valid delivery UUID.";
+  if (values.eventId.length > 200) return "Event ID must be 200 characters or fewer.";
+  if (values.destination.length > 2048) return "Destination must be 2048 characters or fewer.";
+  const min = values.attemptsMin ? Number(values.attemptsMin) : null;
+  const max = values.attemptsMax ? Number(values.attemptsMax) : null;
+  if (
+    (min !== null && (!Number.isInteger(min) || min < 0)) ||
+    (max !== null && (!Number.isInteger(max) || max < 0)) ||
+    (min !== null && max !== null && min > max)
+  )
+    return "Use nonnegative whole numbers, with minimum attempts no greater than maximum attempts.";
+  for (const [from, before] of [
+    [values.createdFrom, values.createdBefore],
+    [values.updatedFrom, values.updatedBefore],
+  ]) {
+    if (
+      (from && Number.isNaN(new Date(from).getTime())) ||
+      (before && Number.isNaN(new Date(before).getTime())) ||
+      (from && before && new Date(from) >= new Date(before))
+    )
+      return "Each time range must end after it starts.";
+  }
+  return null;
+}
 
 export function DeliveriesPage() {
-  const navigate = useNavigate();
-  const [ids, setIds] = useState(trackedDeliveryIds);
-  const [rows, setRows] = useState<Row[]>([]);
+  const token = useAdminToken();
+  const [filters, setFilters] = useState<FilterDraft>({ ...emptyFilters });
+  const [applied, setApplied] = useState<DeliveryFilters>({});
+  const [editingFilter, setEditingFilter] = useState<keyof FilterDraft | null>(null);
+  const [pendingValue, setPendingValue] = useState("");
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const [result, setResult] = useState<DeliveryPage | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState(25);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [lookupId, setLookupId] = useState("");
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const [lookupBusy, setLookupBusy] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    if (ids.length === 0) {
-      setRows([]);
+    if (!token) {
+      setResult(null);
+      setError(null);
+      setLoading(false);
       return;
     }
+    setResult(null);
     setLoading(true);
-    Promise.all(
-      ids.map(async (id): Promise<Row> => {
-        try {
-          return { id, delivery: await api.delivery(id) };
-        } catch (cause) {
-          return {
-            id,
-            error: cause instanceof Error ? cause.message : "Could not load this delivery.",
-          };
-        }
-      }),
-    )
-      .then((result) => {
-        if (active) setRows(result);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    setError(null);
+    const timer = window.setTimeout(() => {
+      api
+        .deliveries(token, applied, page, size)
+        .then(
+          (data) => {
+            if (active) setResult(data);
+          },
+          (cause) => {
+            if (active)
+              setError(cause instanceof Error ? cause.message : "Could not load deliveries.");
+          },
+        )
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 350);
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
-  }, [ids, refreshKey]);
+  }, [token, applied, page, size, refreshKey]);
 
-  async function lookup(event: React.FormEvent<HTMLFormElement>) {
+  function openFilter(key: keyof FilterDraft) {
+    setEditingFilter(key);
+    setPendingValue("");
+    setFilterError(null);
+  }
+
+  function addFilter(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const id = lookupId.trim();
-    if (!isDeliveryId(id)) {
-      setLookupError("Enter a valid delivery UUID.");
+    if (!editingFilter) return;
+    const value = pendingValue.trim();
+    if (!value) {
+      setFilterError("Enter a value to add this filter.");
       return;
     }
-    setLookupBusy(true);
-    setLookupError(null);
-    try {
-      await api.delivery(id);
-      setIds(trackDeliveryIds([id]));
-      await navigate({ to: "/deliveries/$deliveryId", params: { deliveryId: id } });
-    } catch (cause) {
-      setLookupError(cause instanceof Error ? cause.message : "Could not find this delivery.");
-    } finally {
-      setLookupBusy(false);
+    const values = { ...filters, [editingFilter]: value };
+    const validationError = validateFilters(values);
+    if (validationError) {
+      setFilterError(validationError);
+      return;
     }
+    setFilterError(null);
+    setFilters(values);
+    setApplied(toApiFilters(values));
+    setPage(0);
+    setEditingFilter(null);
   }
 
-  async function importDemoIds(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setImportMessage(null);
-    setImportError(null);
-    try {
-      if (file.size > 32_768) throw new Error("This file is too large for a demo ID list.");
-      const imported = parseDemoDeliveryIds(await file.text());
-      setIds(trackDeliveryIds(imported));
-      setImportMessage(`Imported ${imported.length} demo delivery IDs. Statuses are fetched live.`);
-    } catch (cause) {
-      setImportError(cause instanceof Error ? cause.message : "Could not read this file.");
-    } finally {
-      event.target.value = "";
-    }
+  function removeFilter(key: keyof FilterDraft) {
+    const values = { ...filters, [key]: "" };
+    setFilters(values);
+    setApplied(toApiFilters(values));
+    setPage(0);
   }
 
-  const query = filter.trim().toLowerCase();
-  const visible = rows.filter(
-    ({ id, delivery }) =>
-      !query ||
-      [id, delivery?.eventId, delivery?.targetUrl, delivery?.status].some((value) =>
-        value?.toLowerCase().includes(query),
-      ),
-  );
+  const activeOptions = filterOptions.filter(({ key }) => filters[key]);
+  const availableOptions = filterOptions.filter(({ key }) => !filters[key]);
+  const currentOption = filterOptions.find(({ key }) => key === editingFilter);
+
+  const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / size));
+  const firstItem = result && result.total > 0 ? page * size + 1 : 0;
+  const lastItem = result ? Math.min((page + 1) * size, result.total) : 0;
 
   return (
     <div className="space-y-8">
@@ -131,116 +227,165 @@ export function DeliveriesPage() {
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Deliveries</h1>
         <p className="mt-3 max-w-3xl text-muted-foreground">
-          Check delivery status, inspect payloads, and open failed deliveries for a manual retry.
+          Browse every delivery, narrow the list with multiple filters, and open a delivery to
+          inspect or retry it.
         </p>
       </div>
 
-      <Alert>
-        <RiInformationLine />
-        <AlertTitle>Tracked in this browser</AlertTitle>
-        <AlertDescription>
-          The API does not provide a delivery list. This table contains up to 100 IDs created or
-          opened in this browser; each row&apos;s status is fetched live. Events posted directly by
-          third parties will not appear unless you enter a delivery ID.
-        </AlertDescription>
-      </Alert>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Open a delivery</CardTitle>
-          <CardDescription>
-            Use any delivery ID, including one received outside this browser.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={lookup} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <Field className="max-w-lg">
-              <FieldLabel htmlFor="lookup-id">Delivery ID</FieldLabel>
-              <Input
-                id="lookup-id"
-                placeholder="00000000-0000-0000-0000-000000000000"
-                value={lookupId}
-                onChange={(event) => setLookupId(event.target.value)}
-                aria-invalid={!!lookupError}
-              />
-              {lookupError && <FieldError>{lookupError}</FieldError>}
+      <Dialog
+        open={editingFilter !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingFilter(null);
+            setFilterError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add {currentOption?.label} filter</DialogTitle>
+            <DialogDescription>
+              {currentOption?.type === "datetime-local"
+                ? "Use your local timezone. From is inclusive; before is exclusive."
+                : currentOption?.key === "eventId"
+                  ? "Match deliveries whose event ID contains this text."
+                  : currentOption?.key === "destination"
+                    ? "Match a destination URL or ID."
+                    : "This filter will combine with your existing filters."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={addFilter} className="space-y-5">
+            <Field>
+              <FieldLabel htmlFor="filter-value">{currentOption?.label}</FieldLabel>
+              {currentOption?.type === "status" ? (
+                <Select
+                  value={pendingValue || null}
+                  onValueChange={(value) => {
+                    setPendingValue(value ?? "");
+                    setFilterError(null);
+                  }}
+                >
+                  <SelectTrigger id="filter-value" className="w-full">
+                    <SelectValue placeholder="Choose a status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PENDING">Pending</SelectItem>
+                    <SelectItem value="PROCESSING">Processing</SelectItem>
+                    <SelectItem value="FAILED">Failed</SelectItem>
+                    <SelectItem value="SUCCEEDED">Succeeded</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="filter-value"
+                  type={currentOption?.type ?? "text"}
+                  min={currentOption?.type === "number" ? 0 : undefined}
+                  step={currentOption?.type === "number" ? 1 : undefined}
+                  placeholder={currentOption?.placeholder}
+                  value={pendingValue}
+                  onChange={(event) => {
+                    setPendingValue(event.target.value);
+                    setFilterError(null);
+                  }}
+                  autoFocus
+                />
+              )}
+              {filterError && <FieldError>{filterError}</FieldError>}
             </Field>
-            <Button type="submit" disabled={lookupBusy}>
-              <RiSearchLine />
-              {lookupBusy ? "Looking up…" : "Look up"}
-            </Button>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditingFilter(null)}>
+                Cancel
+              </Button>
+              <Button type="submit">Add filter</Button>
+            </DialogFooter>
           </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Load demo deliveries</CardTitle>
-          <CardDescription>
-            After running the local seed script, select its generated demo-delivery-ids.json file.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Field className="max-w-lg">
-            <FieldLabel htmlFor="demo-ids-file">Demo ID file</FieldLabel>
-            <Input
-              id="demo-ids-file"
-              type="file"
-              accept=".json,application/json"
-              onChange={importDemoIds}
-              aria-invalid={!!importError}
-            />
-            {importError && <FieldError>{importError}</FieldError>}
-            {importMessage && <p className="text-sm text-muted-foreground">{importMessage}</p>}
-          </Field>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
           <div className="space-y-1.5">
-            <CardTitle>Recent tracked deliveries</CardTitle>
+            <CardTitle>All deliveries</CardTitle>
             <CardDescription>
-              {ids.length} saved {ids.length === 1 ? "ID" : "IDs"} in this browser
+              {result
+                ? `${result.total.toLocaleString()} matching deliveries`
+                : "Newest created first"}
             </CardDescription>
           </div>
-          <CardAction className="col-start-1 row-span-1 row-start-3 justify-self-start sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:justify-self-end">
-            <div className="flex gap-2">
-              <Input
-                aria-label="Filter deliveries"
-                placeholder="Filter rows"
-                className="w-40 sm:w-52"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Refresh deliveries"
-                disabled={loading || ids.length === 0}
-                onClick={() => setRefreshKey((current) => current + 1)}
-              >
-                <RiRefreshLine />
-              </Button>
-            </div>
+          <CardAction>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!token || loading}
+              onClick={() => setRefreshKey((current) => current + 1)}
+            >
+              <RiRefreshLine /> Refresh
+            </Button>
           </CardAction>
         </CardHeader>
-        <CardContent>
-          {loading ? (
+        <CardContent className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2 border-b pb-5">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={availableOptions.length === 0}
+                  />
+                }
+              >
+                <RiAddLine /> Add filter
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {availableOptions.map((option) => (
+                  <DropdownMenuItem key={option.key} onClick={() => openFilter(option.key)}>
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {activeOptions.map((option) => (
+              <Button
+                key={option.key}
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-auto max-w-full gap-2 rounded-full py-1.5"
+                onClick={() => removeFilter(option.key)}
+                aria-label={`Remove ${option.label} filter`}
+                title="Click to remove filter"
+              >
+                <span className="max-w-64 truncate">
+                  {option.label}:{" "}
+                  {option.type === "datetime-local"
+                    ? formatTime(filters[option.key])
+                    : filters[option.key]}
+                </span>
+                <RiCloseLine className="size-3.5 shrink-0" />
+              </Button>
+            ))}
+          </div>
+          {!token ? (
+            <p className="rounded-xl border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
+              Enter the admin token in the header to list deliveries.
+            </p>
+          ) : loading ? (
             <div className="space-y-3">
               <Skeleton className="h-11 w-full" />
               <Skeleton className="h-11 w-full" />
               <Skeleton className="h-11 w-4/5" />
             </div>
-          ) : ids.length === 0 ? (
+          ) : error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load deliveries</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : result?.items.length === 0 ? (
             <p className="rounded-xl border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
-              No tracked deliveries yet. Send an event or look up a delivery ID to start this list.
+              No deliveries match these filters.
             </p>
-          ) : visible.length === 0 ? (
-            <p className="rounded-xl border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
-              No tracked deliveries match that filter.
-            </p>
-          ) : (
+          ) : result ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -249,33 +394,37 @@ export function DeliveriesPage() {
                   <TableHead>Destination</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Attempts</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Updated</TableHead>
                   <TableHead className="text-right">Open</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {visible.map(({ id, delivery, error }) => (
-                  <TableRow key={id}>
-                    <TableCell className="font-mono text-xs">{id.slice(0, 8)}…</TableCell>
-                    <TableCell className="max-w-44 truncate" title={delivery?.eventId}>
-                      {delivery?.eventId ?? "—"}
+                {result.items.map((delivery) => (
+                  <TableRow key={delivery.id}>
+                    <TableCell className="font-mono text-xs" title={delivery.id}>
+                      {delivery.id.slice(0, 8)}…
                     </TableCell>
-                    <TableCell className="max-w-64 truncate" title={delivery?.targetUrl}>
-                      {delivery?.targetUrl ?? "—"}
+                    <TableCell className="max-w-44 truncate" title={delivery.eventId}>
+                      {delivery.eventId}
+                    </TableCell>
+                    <TableCell className="max-w-64 truncate" title={delivery.targetUrl}>
+                      {delivery.targetUrl}
                     </TableCell>
                     <TableCell>
-                      {delivery ? (
-                        <DeliveryStatus status={delivery.status} />
-                      ) : (
-                        <span className="text-destructive" title={error}>
-                          Unavailable
-                        </span>
-                      )}
+                      <DeliveryStatus status={delivery.status} />
                     </TableCell>
-                    <TableCell>{delivery?.attempts ?? "—"}</TableCell>
+                    <TableCell>{delivery.attempts}</TableCell>
+                    <TableCell className="text-xs" title={delivery.createdAt}>
+                      {formatTime(delivery.createdAt)}
+                    </TableCell>
+                    <TableCell className="text-xs" title={delivery.updatedAt}>
+                      {formatTime(delivery.updatedAt)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Link
                         to="/deliveries/$deliveryId"
-                        params={{ deliveryId: id }}
+                        params={{ deliveryId: delivery.id }}
                         className="inline-flex items-center gap-1 text-primary hover:underline dark:text-blue-300 dark:hover:text-blue-200"
                       >
                         Details <RiArrowRightLine className="size-4" />
@@ -285,6 +434,54 @@ export function DeliveriesPage() {
                 ))}
               </TableBody>
             </Table>
+          ) : null}
+          {result && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4 text-sm">
+              <span className="text-muted-foreground">
+                Showing {firstItem.toLocaleString()}–{lastItem.toLocaleString()} of{" "}
+                {result.total.toLocaleString()}
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted-foreground">Rows per page</span>
+                <Select
+                  value={String(size)}
+                  onValueChange={(value) => {
+                    if (value) {
+                      setSize(Number(value));
+                      setPage(0);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-20" aria-label="Rows per page">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page === 0 || loading}
+                  onClick={() => setPage((current) => current - 1)}
+                >
+                  Previous
+                </Button>
+                <span className="min-w-16 text-center">
+                  {page + 1} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page + 1 >= totalPages || loading}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -8,12 +8,15 @@ import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -174,6 +177,53 @@ public class DeliveryApi {
         DeliveryStore.Delivery delivery = store.delivery(id);
         if (delivery == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         return delivery;
+    }
+
+    @GetMapping("/deliveries")
+    public DeliveryStore.DeliveryPage listDeliveries(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(required = false) UUID deliveryId,
+            @RequestParam(required = false) String eventId,
+            @RequestParam(required = false) String destination,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer attemptsMin,
+            @RequestParam(required = false) Integer attemptsMax,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdBefore,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedBefore,
+            @RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireAdmin(token);
+        if (page < 0 || size < 1 || size > 100 || page > Integer.MAX_VALUE / size)
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Use a nonnegative page and a size from 1 to 100");
+        if (eventId != null && eventId.length() > 200)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventId exceeds 200 characters");
+        if (destination != null && destination.length() > 2048)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "destination exceeds 2048 characters");
+        if (status != null
+                && !Set.of("PENDING", "PROCESSING", "SUCCEEDED", "FAILED").contains(status))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown delivery status");
+        if ((attemptsMin != null && attemptsMin < 0)
+                || (attemptsMax != null && attemptsMax < 0)
+                || (attemptsMin != null && attemptsMax != null && attemptsMin > attemptsMax))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid attempts range");
+        if ((createdFrom != null && createdBefore != null && !createdFrom.isBefore(createdBefore))
+                || (updatedFrom != null && updatedBefore != null && !updatedFrom.isBefore(updatedBefore)))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Time range must end after it starts");
+        var filters = new DeliveryStore.DeliveryFilters(
+                deliveryId,
+                eventId,
+                destination,
+                status,
+                attemptsMin,
+                attemptsMax,
+                createdFrom,
+                createdBefore,
+                updatedFrom,
+                updatedBefore);
+        return store.listDeliveries(filters, page, size);
     }
 
     @PostMapping("/deliveries/{id}/retry")

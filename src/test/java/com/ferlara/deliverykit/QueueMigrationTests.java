@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.DriverManager;
+import java.time.Instant;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -46,7 +47,8 @@ class QueueMigrationTests {
                 var statement = connection.createStatement()) {
             statement.executeUpdate(
                     "INSERT INTO webhook_endpoints (id, url) VALUES ('00000000-0000-0000-0000-000000000001', 'https://example.test/hook')");
-            statement.executeUpdate("INSERT INTO webhook_events (event_id, payload) VALUES ('migration-event', '{}')");
+            statement.executeUpdate(
+                    "INSERT INTO webhook_events (event_id, payload, created_at) VALUES ('migration-event', '{}', TIMESTAMP WITH TIME ZONE '2025-01-02 03:04:05+00')");
             statement.executeUpdate(
                     "INSERT INTO deliveries (id, event_id, endpoint_id, target_url, payload, status, attempts) VALUES ('"
                             + deliveryId
@@ -69,9 +71,13 @@ class QueueMigrationTests {
 
         try (var connection = DriverManager.getConnection(url, "sa", "");
                 var statement = connection.createStatement();
-                var rows = statement.executeQuery("SELECT attempts FROM deliveries WHERE id = '" + deliveryId + "'")) {
+                var rows = statement.executeQuery(
+                        "SELECT attempts, created_at FROM deliveries WHERE id = '" + deliveryId + "'")) {
             assertTrue(rows.next());
             assertEquals(2, rows.getInt("attempts"));
+            assertEquals(
+                    Instant.parse("2025-01-02T03:04:05Z"),
+                    rows.getTimestamp("created_at").toInstant());
         }
 
         try (var connection = DriverManager.getConnection(url, "sa", "");

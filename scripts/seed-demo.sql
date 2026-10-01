@@ -104,7 +104,7 @@ WITH destinations(position, slug, url) AS (
     JOIN webhook_endpoints AS endpoint ON endpoint.id = md5('deliverykit-medium-v1:endpoint:' || destination.slug)::uuid
         AND endpoint.url = destination.url
 )
-INSERT INTO deliveries (id, event_id, endpoint_id, target_url, payload, status, attempts, last_error, updated_at)
+INSERT INTO deliveries (id, event_id, endpoint_id, target_url, payload, status, attempts, last_error, created_at, updated_at)
 SELECT
     id,
     event_id,
@@ -116,6 +116,7 @@ SELECT
     CASE WHEN outcome = 0 THEN 'Recipient returned HTTP 503'
          WHEN outcome = 1 THEN 'java.net.http.HttpTimeoutException: recipient timed out'
          ELSE NULL END,
+    created_at,
     created_at + INTERVAL '2 minutes'
 FROM candidates
 ON CONFLICT (id) DO NOTHING;

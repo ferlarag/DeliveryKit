@@ -2,6 +2,7 @@ import { RiAddLine, RiRefreshLine } from "@remixicon/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { DestinationChoices } from "@/components/destination-choices";
+import { IncomingEndpointStatus } from "@/components/incoming-endpoint-status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -209,9 +210,7 @@ export function IncomingPage() {
                       {endpoint.id}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={endpoint.archivedAt ? "outline" : "secondary"}>
-                        {endpoint.archivedAt ? "Archived" : "Active"}
-                      </Badge>
+                      <IncomingEndpointStatus archived={!!endpoint.archivedAt} />
                     </TableCell>
                     <TableCell>
                       {endpoint.destinationIds.length} destination

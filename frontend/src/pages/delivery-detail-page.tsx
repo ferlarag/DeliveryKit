@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Delivery, type DeliveryAttempt } from "@/lib/api";
-import { trackDeliveryIds } from "@/lib/delivery-tracking";
 import { useAdminToken } from "@/lib/use-admin-token";
 
 function displayPayload(payload: string) {
@@ -41,7 +40,6 @@ export function DeliveryDetailPage({ id }: { id: string }) {
           if (active) {
             setDelivery(data);
             setAttempts(history);
-            trackDeliveryIds([id]);
           }
         },
         (cause) => {
@@ -80,7 +78,7 @@ export function DeliveryDetailPage({ id }: { id: string }) {
           to="/deliveries"
           className="mb-5 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
-          <RiArrowLeftLine className="size-4" /> All tracked deliveries
+          <RiArrowLeftLine className="size-4" /> All deliveries
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -127,6 +125,20 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                   {delivery.attempts} delivery {delivery.attempts === 1 ? "attempt" : "attempts"}{" "}
                   recorded
                 </div>
+                <dl className="space-y-2 border-t pt-3 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">Created</dt>
+                    <dd title={delivery.createdAt}>
+                      {new Date(delivery.createdAt).toLocaleString()}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Last updated</dt>
+                    <dd title={delivery.updatedAt}>
+                      {new Date(delivery.updatedAt).toLocaleString()}
+                    </dd>
+                  </div>
+                </dl>
               </CardContent>
             </Card>
             <Card>
@@ -223,7 +235,9 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                           : "Earlier attempts were not recorded individually."}
                       </p>
                       {delivery.lastError && (
-                        <p className="break-words text-destructive">Latest error: {delivery.lastError}</p>
+                        <p className="break-words text-destructive">
+                          Latest error: {delivery.lastError}
+                        </p>
                       )}
                     </div>
                   )}
@@ -233,12 +247,15 @@ export function DeliveryDetailPage({ id }: { id: string }) {
                         <span className="font-medium">Attempt {attempt.number}</span>
                         <Badge variant={attempt.status === "FAILED" ? "destructive" : "secondary"}>
                           {attempt.status === "PROCESSING"
-                            ? attempt.number === delivery.attempts && delivery.status === "PROCESSING"
+                            ? attempt.number === delivery.attempts &&
+                              delivery.status === "PROCESSING"
                               ? "In progress"
                               : "Outcome unknown"
                             : attempt.status.toLowerCase()}
                         </Badge>
-                        {attempt.initiatedBy === "MANUAL" && <Badge variant="outline">Manual retry</Badge>}
+                        {attempt.initiatedBy === "MANUAL" && (
+                          <Badge variant="outline">Manual retry</Badge>
+                        )}
                       </div>
                       <div className="mt-2 text-muted-foreground">
                         {new Date(attempt.startedAt).toLocaleString()}

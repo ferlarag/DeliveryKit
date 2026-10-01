@@ -142,6 +142,41 @@ describe("DeliveryKit API client", () => {
     );
   });
 
+  it("requests a bounded delivery page with combined filters", async () => {
+    const page = { items: [], total: 0, page: 2, size: 25 };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(page), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      api.deliveries(
+        "secret",
+        {
+          eventId: "orders",
+          status: "FAILED",
+          attemptsMin: "2",
+          createdFrom: "2026-09-28T00:00:00.000Z",
+        },
+        2,
+        25,
+      ),
+    ).resolves.toEqual(page);
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const params = new URL(url, "http://localhost").searchParams;
+    expect(url.startsWith("/deliveries?")).toBe(true);
+    expect(Object.fromEntries(params)).toEqual({
+      page: "2",
+      size: "25",
+      eventId: "orders",
+      status: "FAILED",
+      attemptsMin: "2",
+      createdFrom: "2026-09-28T00:00:00.000Z",
+    });
+    expect(options.headers).toEqual(expect.objectContaining({ "X-Admin-Token": "secret" }));
+  });
+
   it("creates an incoming endpoint and sends an event to its URL", async () => {
     const fetchMock = vi
       .fn()

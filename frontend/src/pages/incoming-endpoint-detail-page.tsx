@@ -3,8 +3,8 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { CopyBlock } from "@/components/copy-block";
 import { DestinationChoices } from "@/components/destination-choices";
+import { IncomingEndpointStatus } from "@/components/incoming-endpoint-status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
@@ -12,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { api, type Endpoint, type EventResponse, type IngressEndpoint } from "@/lib/api";
-import { trackDeliveryIds } from "@/lib/delivery-tracking";
 import { useAdminToken } from "@/lib/use-admin-token";
 
 const eventIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
@@ -208,7 +207,6 @@ export function IncomingEndpointDetailPage({ id }: { id: string }) {
         sourceUrl.trim(),
         endpoint.id,
       );
-      trackDeliveryIds(created.deliveryIds);
       setResult(created);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not submit the event.");
@@ -230,11 +228,7 @@ export function IncomingEndpointDetailPage({ id }: { id: string }) {
           <h1 className="min-w-0 break-all text-3xl font-semibold tracking-tight sm:text-4xl">
             {id}
           </h1>
-          {endpoint && (
-            <Badge variant={endpoint.archivedAt ? "outline" : "secondary"}>
-              {endpoint.archivedAt ? "Archived" : "Active"}
-            </Badge>
-          )}
+          {endpoint && <IncomingEndpointStatus archived={!!endpoint.archivedAt} />}
         </div>
         <p className="mt-3 text-muted-foreground">
           Configure forwarding and test this incoming endpoint.

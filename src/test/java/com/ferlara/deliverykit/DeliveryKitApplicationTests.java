@@ -23,6 +23,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -98,6 +100,106 @@ class DeliveryKitApplicationTests {
         events.deleteAll();
         ingressEndpoints.deleteAll();
         endpoints.deleteAll();
+    }
+
+    @Test
+    void listsDeliveriesWithPaginationAndStackedFilters() throws Exception {
+        var destination = store.addEndpoint("https://receiver.example.test/hook");
+        UUID[] ids = new UUID[4];
+        String[] statuses = {"SUCCEEDED", "PENDING", "FAILED", "FAILED"};
+        for (int index = 0; index < ids.length; index++) {
+            String eventId = "orders-" + index;
+            store.createEvent(eventId, "{\"number\":" + index + "}");
+            ids[index] = store.eventDeliveries(eventId).getFirst();
+            Instant createdAt = Instant.parse("2026-09-2" + (5 + index) + "T10:00:00Z");
+            jdbc.update(
+                    "UPDATE deliveries SET status = ?, attempts = ?, created_at = ?, updated_at = ? WHERE id = ?",
+                    statuses[index],
+                    index,
+                    Timestamp.from(createdAt),
+                    Timestamp.from(createdAt.plusSeconds(3600)),
+                    ids[index]);
+        }
+        var mvc = MockMvcBuilders.webAppContextSetup(webContext).build();
+        assertEquals(
+                401, mvc.perform(get("/deliveries")).andReturn().getResponse().getStatus());
+        assertEquals(
+                400,
+                mvc.perform(get("/deliveries")
+                                .header("X-Admin-Token", "test-secret")
+                                .param("size", "101"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+        assertEquals(
+                400,
+                mvc.perform(get("/deliveries")
+                                .header("X-Admin-Token", "test-secret")
+                                .param("attemptsMin", "3")
+                                .param("attemptsMax", "2"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+
+        var firstPage = mvc.perform(get("/deliveries")
+                        .header("X-Admin-Token", "test-secret")
+                        .param("page", "0")
+                        .param("size", "2"))
+                .andReturn()
+                .getResponse();
+        assertEquals(200, firstPage.getStatus());
+        String first = firstPage.getContentAsString();
+        assertTrue(first.contains("\"total\":4"));
+        assertTrue(first.contains("\"size\":2"));
+        assertTrue(first.indexOf(ids[3].toString()) < first.indexOf(ids[2].toString()));
+        assertTrue(!first.contains(ids[1].toString()));
+        assertTrue(!first.contains("payload"));
+        assertTrue(first.contains("\"createdAt\":\"2026-09-28T10:00:00Z\""));
+
+        String detail = mvc.perform(get("/deliveries/" + ids[2]))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertTrue(detail.contains("\"createdAt\":\"2026-09-27T10:00:00Z\""));
+        assertTrue(detail.contains("\"updatedAt\":\"2026-09-27T11:00:00Z\""));
+
+        String second = mvc.perform(get("/deliveries")
+                        .header("X-Admin-Token", "test-secret")
+                        .param("page", "1")
+                        .param("size", "2"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertTrue(second.contains(ids[1].toString()));
+        assertTrue(second.contains(ids[0].toString()));
+        assertTrue(!second.contains(ids[3].toString()));
+
+        String byDestinationId = mvc.perform(get("/deliveries")
+                        .header("X-Admin-Token", "test-secret")
+                        .param("destination", destination.id().toString()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertTrue(byDestinationId.contains("\"total\":4"));
+
+        String filtered = mvc.perform(get("/deliveries")
+                        .header("X-Admin-Token", "test-secret")
+                        .param("deliveryId", ids[2].toString())
+                        .param("eventId", "ORDERS")
+                        .param("destination", "RECEIVER")
+                        .param("status", "FAILED")
+                        .param("attemptsMin", "2")
+                        .param("attemptsMax", "2")
+                        .param("createdFrom", "2026-09-27T00:00:00Z")
+                        .param("createdBefore", "2026-09-28T00:00:00Z")
+                        .param("updatedFrom", "2026-09-27T00:00:00Z")
+                        .param("updatedBefore", "2026-09-28T00:00:00Z"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertTrue(filtered.contains("\"total\":1"));
+        assertTrue(filtered.contains(ids[2].toString()));
+        assertTrue(!filtered.contains(ids[3].toString()));
     }
 
     @Test

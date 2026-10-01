@@ -11,9 +11,8 @@ route in the Incoming page; rerunning the seed leaves those choices intact.
 1. Start the local stack with `docker compose up --build -d` (after creating
    `.env` from `.env.example` and setting its required values).
 2. Run `./scripts/seed-demo.sh`.
-3. Open the **Deliveries** page and import `target/demo-delivery-ids.json` in
-   **Load demo deliveries**. The browser will fetch their current statuses from
-   the API. Incoming endpoints and destinations appear in their respective pages.
+3. Open the **Deliveries** page to browse the seeded rows through the API.
+   Incoming endpoints and destinations appear in their respective pages.
 4. When finished, run `./scripts/seed-demo.sh --remove`.
 
 The seed is safe to rerun without creating duplicate rows. Rerunning it refreshes
@@ -22,5 +21,4 @@ metadata migration. Attempt history is added only to untouched demo deliveries;
 deliveries you have retried retain their actual history. The removal command
 targets the marked demo records and leaves unrelated data intact. While present,
 the synthetic destination endpoints are active for any new event you submit, so
-remove the seed before normal local development. The generated JSON file
-contains delivery IDs only, not payloads or credentials.
+remove the seed before normal local development.

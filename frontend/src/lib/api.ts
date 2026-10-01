@@ -15,6 +15,26 @@ export type Delivery = {
   status: "PENDING" | "FAILED" | "SUCCEEDED" | string;
   attempts: number;
   lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeliverySummary = Pick<
+  Delivery,
+  "id" | "eventId" | "targetUrl" | "status" | "attempts" | "createdAt" | "updatedAt"
+>;
+export type DeliveryPage = { items: DeliverySummary[]; total: number; page: number; size: number };
+export type DeliveryFilters = {
+  deliveryId?: string;
+  eventId?: string;
+  destination?: string;
+  status?: string;
+  attemptsMin?: string;
+  attemptsMax?: string;
+  createdFrom?: string;
+  createdBefore?: string;
+  updatedFrom?: string;
+  updatedBefore?: string;
 };
 
 export type DeliveryAttempt = {
@@ -116,6 +136,13 @@ export const api = {
       },
     ),
   delivery: (id: string) => request<Delivery>(`/deliveries/${encodeURIComponent(id)}`),
+  deliveries: (token: string, filters: DeliveryFilters, page: number, size: number) => {
+    const params = new URLSearchParams({ page: String(page), size: String(size) });
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, value);
+    }
+    return request<DeliveryPage>(`/deliveries?${params}`, { headers: adminHeaders(token) });
+  },
   attempts: (id: string) =>
     request<DeliveryAttempt[]>(`/deliveries/${encodeURIComponent(id)}/attempts`),
   retry: (id: string, token: string) =>

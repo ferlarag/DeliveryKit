@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,6 +38,12 @@ public class DeliveryEntity {
 
     @Column(name = "last_error", length = 1000)
     private String lastError;
+
+    @Column(name = "created_at", insertable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(name = "updated_at", insertable = false, updatable = false)
+    private Instant updatedAt;
 
     public DeliveryEntity(UUID id, String eventId, UUID endpointId, String targetUrl, String payload) {
         this.id = id;

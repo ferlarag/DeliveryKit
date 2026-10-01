@@ -90,6 +90,12 @@ database is available. The image exposes port 8080.
 `POST /webhooks` accepts `{"eventId":"unique-1","payload":{"kind":"demo"}}` and returns delivery IDs with status 202.
 Repeating an event ID with the same payload returns its existing deliveries; a different payload is rejected. Each
 endpoint gets its own delivery. `GET /deliveries/{id}` shows status, attempts, and last error.
+`GET /deliveries` requires `X-Admin-Token` and returns `{items,total,page,size}` with compact rows, newest creation
+first. Pages are zero-based (default size 25, maximum 100). Filters can be combined: `deliveryId` (exact UUID),
+`eventId` (case-insensitive text), `destination` (destination UUID or case-insensitive text within the recorded URL), `status`,
+`attemptsMin`, `attemptsMax`, and ISO-8601 `createdFrom`, `createdBefore`, `updatedFrom`, `updatedBefore`.
+“From” is inclusive and “before” is exclusive. Both delivery detail and list rows include `createdAt` and
+`updatedAt`; the creation time for older deliveries is backfilled from their event time.
 `GET /deliveries/{id}/attempts` returns each recorded send with timing, outcome, HTTP status,
 failure reason, and whether it followed a manual retry. Attempts made before the history migration
 retain their count but have no individual records.
