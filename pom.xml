@@ -15,12 +15,36 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
     <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
   </dependencies>
-  <build><plugins>
+  <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+      <resource><directory>frontend/dist</directory><targetPath>static</targetPath></resource>
+    </resources>
+    <plugins>
+    <plugin>
+      <groupId>com.github.eirslett</groupId><artifactId>frontend-maven-plugin</artifactId><version>2.0.2</version>
+      <configuration>
+        <workingDirectory>frontend</workingDirectory>
+        <installDirectory>${project.build.directory}/frontend-node</installDirectory>
+      </configuration>
+      <executions>
+        <execution><id>install-node</id><phase>generate-resources</phase><goals><goal>install-node-and-npm</goal></goals>
+          <configuration><nodeVersion>v24.21.0</nodeVersion><npmVersion>12.1.0</npmVersion></configuration>
+        </execution>
+        <execution><id>install-frontend</id><phase>generate-resources</phase><goals><goal>npm</goal></goals>
+          <configuration><arguments>ci</arguments></configuration>
+        </execution>
+        <execution><id>build-frontend</id><phase>generate-resources</phase><goals><goal>npm</goal></goals>
+          <configuration><arguments>run build</arguments></configuration>
+        </execution>
+      </executions>
+    </plugin>
     <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
     <plugin>
       <groupId>com.diffplug.spotless</groupId><artifactId>spotless-maven-plugin</artifactId><version>3.10.3</version>
       <configuration><java><palantirJavaFormat><version>2.99.0</version></palantirJavaFormat></java></configuration>
       <executions><execution><goals><goal>check</goal></goals></execution></executions>
     </plugin>
-  </plugins></build>
+    </plugins>
+  </build>
 </project>

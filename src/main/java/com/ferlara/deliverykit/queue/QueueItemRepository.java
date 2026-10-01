@@ -17,7 +17,7 @@ public interface QueueItemRepository extends JpaRepository<QueueItemEntity, UUID
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
             value =
-                    "UPDATE queue SET claimed_until = :claimedUntil WHERE id = :id AND sent_at IS NULL AND (claimed_until IS NULL OR claimed_until < CURRENT_TIMESTAMP)",
+                    "UPDATE queue SET claimed_until = :claimedUntil, manual_retry = FALSE WHERE id = :id AND sent_at IS NULL AND (claimed_until IS NULL OR claimed_until < CURRENT_TIMESTAMP)",
             nativeQuery = true)
     int claim(@Param("id") UUID id, @Param("claimedUntil") Instant claimedUntil);
 

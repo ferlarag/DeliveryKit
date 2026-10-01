@@ -68,7 +68,7 @@ public class Worker {
     private void process(DeliveryStore.QueueItem item) {
         if (!store.claimQueueItem(item.id())) return;
         try {
-            if (deliver(item.deliveryId())) {
+            if (deliver(item.deliveryId(), item.manualRetry())) {
                 store.completeQueueItem(item.id());
             } else {
                 var delivery = store.delivery(item.deliveryId());
@@ -82,10 +82,16 @@ public class Worker {
 
     // A database lease prevents another worker from sending the same delivery concurrently.
     public boolean deliver(UUID id) {
+        return deliver(id, false);
+    }
+
+    private boolean deliver(UUID id, boolean manualRetry) {
         var current = store.delivery(id);
         if (current == null || current.status().equals("SUCCEEDED")) return true;
-        if (!store.claimDelivery(id)) return false;
+        UUID attemptId = store.claimDelivery(id, manualRetry);
+        if (attemptId == null) return false;
         var delivery = store.delivery(id);
+        Integer httpStatus = null;
         try {
             var request = HttpRequest.newBuilder(URI.create(delivery.targetUrl()))
                     .timeout(Duration.ofSeconds(8))
@@ -94,15 +100,16 @@ public class Worker {
                     .header("Idempotency-Key", delivery.id().toString())
                     .POST(HttpRequest.BodyPublishers.ofString(delivery.payload()))
                     .build();
-            int status =
+            httpStatus =
                     http.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
-            if (status < 200 || status >= 300) throw new IllegalStateException("Recipient returned HTTP " + status);
-            store.succeeded(id);
+            if (httpStatus < 200 || httpStatus >= 300)
+                throw new IllegalStateException("Recipient returned HTTP " + httpStatus);
+            store.succeeded(id, attemptId, httpStatus);
             log.info("Delivery {} succeeded", id);
             return true;
         } catch (Exception e) {
             String error = e.toString();
-            store.failed(id, error.length() > 1000 ? error.substring(0, 1000) : error);
+            store.failed(id, attemptId, error.length() > 1000 ? error.substring(0, 1000) : error, httpStatus);
             log.warn("Delivery {} failed: {}", id, error);
             return false;
         }

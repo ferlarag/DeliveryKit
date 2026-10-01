@@ -1,0 +1,264 @@
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { api } from "./api";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("DeliveryKit API client", () => {
+  it("submits an event with its payload and returns delivery IDs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ eventId: "evt-1", deliveryIds: ["delivery-1"] }), {
+        status: 202,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.submitEvent("evt-1", { kind: "demo" })).resolves.toEqual({
+      eventId: "evt-1",
+      deliveryIds: ["delivery-1"],
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/webhooks",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ eventId: "evt-1", payload: { kind: "demo" } }),
+      }),
+    );
+  });
+
+  it("includes the optional source URL when submitting an event", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ eventId: "evt-2", deliveryIds: [] }), { status: 202 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.submitEvent("evt-2", { kind: "demo" }, "https://shop.example.test/events");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/webhooks",
+      expect.objectContaining({
+        body: JSON.stringify({
+          eventId: "evt-2",
+          payload: { kind: "demo" },
+          sourceUrl: "https://shop.example.test/events",
+        }),
+      }),
+    );
+  });
+
+  it("sends the admin token for destination creation and retry", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "endpoint-1", url: "https://example.com/hook" }), {
+          status: 201,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "delivery-1", status: "PENDING" }), { status: 202 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.addEndpoint("secret", "https://example.com/hook");
+    await api.retry("delivery-1", "secret");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/endpoints",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/deliveries/delivery-1/retry",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+      }),
+    );
+  });
+
+  it("updates a destination URL under its existing ID", async () => {
+    const updated = { id: "destination-1", url: "https://new.example.test/hook" };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(updated), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.updateEndpoint("secret", updated.id, updated.url)).resolves.toEqual(updated);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/endpoints/destination-1",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+        body: JSON.stringify({ url: updated.url }),
+      }),
+    );
+  });
+
+  it("lists removed destinations and sends authenticated remove and restore requests", async () => {
+    const removed = {
+      id: "destination-1",
+      url: "https://example.test/hook",
+      archivedAt: "2026-09-29T00:00:00Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([removed]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...removed, archivedAt: null }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.endpoints("secret", true);
+    await api.removeEndpoint("secret", removed.id);
+    await api.restoreEndpoint("secret", removed.id);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/endpoints?includeArchived=true",
+      expect.objectContaining({ headers: expect.objectContaining({ "X-Admin-Token": "secret" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/endpoints/destination-1",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/endpoints/destination-1/restore",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+      }),
+    );
+  });
+
+  it("requests a bounded delivery page with combined filters", async () => {
+    const page = { items: [], total: 0, page: 2, size: 25 };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(page), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      api.deliveries(
+        "secret",
+        {
+          eventId: "orders",
+          status: "FAILED",
+          attemptsMin: "2",
+          createdFrom: "2026-09-28T00:00:00.000Z",
+        },
+        2,
+        25,
+      ),
+    ).resolves.toEqual(page);
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const params = new URL(url, "http://localhost").searchParams;
+    expect(url.startsWith("/deliveries?")).toBe(true);
+    expect(Object.fromEntries(params)).toEqual({
+      page: "2",
+      size: "25",
+      eventId: "orders",
+      status: "FAILED",
+      attemptsMin: "2",
+      createdFrom: "2026-09-28T00:00:00.000Z",
+    });
+    expect(options.headers).toEqual(expect.objectContaining({ "X-Admin-Token": "secret" }));
+  });
+
+  it("creates an incoming endpoint and sends an event to its URL", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "orders-prod", createdAt: "2026-09-29T00:00:00Z" }), {
+          status: 201,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ eventId: "evt-3", deliveryIds: [] }), { status: 202 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.addIngressEndpoint("secret", "orders-prod", ["destination-1"]);
+    await api.submitEvent("evt-3", { kind: "demo" }, undefined, "orders-prod");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/ingress-endpoints",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+        body: JSON.stringify({ id: "orders-prod", destinationIds: ["destination-1"] }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/webhooks/orders-prod",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("saves routing settings and archives an incoming endpoint", async () => {
+    const endpoint = {
+      id: "orders-prod",
+      createdAt: "2026-09-29T00:00:00Z",
+      archivedAt: null,
+      destinationIds: ["destination-1"],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(endpoint), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...endpoint, archivedAt: "2026-09-29T01:00:00Z" }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.updateIngressDestinations("secret", "orders-prod", ["destination-1"]);
+    await api.archiveIngressEndpoint("secret", "orders-prod");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/ingress-endpoints/orders-prod/destinations",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ destinationIds: ["destination-1"] }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/ingress-endpoints/orders-prod/archive",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Admin-Token": "secret" }),
+      }),
+    );
+  });
+
+  it("shows the API problem detail when a request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Only failed deliveries can be retried" }), {
+          status: 409,
+        }),
+      ),
+    );
+
+    await expect(api.retry("delivery-1", "secret")).rejects.toThrow(
+      "Only failed deliveries can be retried",
+    );
+  });
+});
