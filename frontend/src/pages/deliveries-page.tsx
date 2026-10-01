@@ -404,7 +404,7 @@ export function DeliveriesPage() {
               </TableHeader>
               <TableBody>
                 {result.items.map((delivery) => (
-                  <TableRow key={delivery.id} className="group/row">
+                  <TableRow key={delivery.id} className="group/row hover:bg-muted">
                     <TableCell className="w-44 min-w-44 max-w-44 text-sm">
                       <CopyableText
                         value={delivery.id}
@@ -434,7 +434,7 @@ export function DeliveriesPage() {
                     <TableCell className="text-xs" title={delivery.updatedAt}>
                       {formatTime(delivery.updatedAt)}
                     </TableCell>
-                    <TableCell className="sticky right-0 z-10 w-24 border-l bg-card text-right group-hover/row:bg-muted/50">
+                    <TableCell className="sticky right-0 z-10 w-24 border-l bg-card text-right transition-colors group-hover/row:bg-muted">
                       <Link
                         to="/deliveries/$deliveryId"
                         params={{ deliveryId: delivery.id }}
