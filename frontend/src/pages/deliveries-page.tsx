@@ -1,10 +1,11 @@
-import { RiAddLine, RiArrowRightLine, RiCloseLine, RiRefreshLine } from "@remixicon/react";
+import { RiAddLine, RiCloseLine, RiRefreshLine } from "@remixicon/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { DeliveryStatus } from "@/components/delivery-status";
+import { CopyableText } from "@/components/copyable-text";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -389,24 +390,36 @@ export function DeliveriesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Delivery</TableHead>
-                  <TableHead>Event ID</TableHead>
+                  <TableHead className="w-44 min-w-44 max-w-44">Delivery</TableHead>
+                  <TableHead className="w-44 min-w-44 max-w-44">Event ID</TableHead>
                   <TableHead>Destination</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Attempts</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Updated</TableHead>
-                  <TableHead className="text-right">Open</TableHead>
+                  <TableHead className="sticky right-0 z-20 w-24 border-l bg-card text-right">
+                    Action
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {result.items.map((delivery) => (
-                  <TableRow key={delivery.id}>
-                    <TableCell className="text-sm" title={delivery.id}>
-                      {delivery.id.slice(0, 8)}…
+                  <TableRow key={delivery.id} className="group/row">
+                    <TableCell className="w-44 min-w-44 max-w-44 text-sm">
+                      <CopyableText
+                        value={delivery.id}
+                        displayValue={delivery.id}
+                        label="delivery ID"
+                        className="w-full min-w-0"
+                      />
                     </TableCell>
-                    <TableCell className="max-w-44 truncate" title={delivery.eventId}>
-                      {delivery.eventId}
+                    <TableCell className="w-44 min-w-44 max-w-44">
+                      <CopyableText
+                        value={delivery.eventId}
+                        displayValue={delivery.eventId}
+                        label="event ID"
+                        className="w-full min-w-0"
+                      />
                     </TableCell>
                     <TableCell className="max-w-64 truncate" title={delivery.targetUrl}>
                       {delivery.targetUrl}
@@ -421,13 +434,13 @@ export function DeliveriesPage() {
                     <TableCell className="text-xs" title={delivery.updatedAt}>
                       {formatTime(delivery.updatedAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="sticky right-0 z-10 w-24 border-l bg-card text-right group-hover/row:bg-muted/50">
                       <Link
                         to="/deliveries/$deliveryId"
                         params={{ deliveryId: delivery.id }}
-                        className="inline-flex items-center gap-1 text-primary hover:underline dark:text-blue-300 dark:hover:text-blue-200"
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
                       >
-                        Details <RiArrowRightLine className="size-4" />
+                        View
                       </Link>
                     </TableCell>
                   </TableRow>

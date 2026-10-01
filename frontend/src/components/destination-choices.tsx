@@ -16,22 +16,36 @@ export function DestinationChoices({
 }) {
   const allSelected =
     destinations.length > 0 && destinations.every((item) => selectedIds.includes(item.id));
+  const anySelected = destinations.some((item) => selectedIds.includes(item.id));
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium">Forward to</span>
-        {destinations.length > 0 && !allSelected && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            disabled={disabled}
-            onClick={() => onChange(destinations.map((item) => item.id))}
-          >
-            Select all
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-1">
+          {destinations.length > 0 && !allSelected && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={disabled}
+              onClick={() => onChange(destinations.map((item) => item.id))}
+            >
+              Select all
+            </Button>
+          )}
+          {anySelected && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={disabled}
+              onClick={() => onChange([])}
+            >
+              Deselect all
+            </Button>
+          )}
+        </div>
       </div>
       {destinations.length === 0 ? (
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
@@ -65,8 +79,10 @@ export function DestinationChoices({
           ))}
         </div>
       )}
-      {selectedIds.length === 0 && (
-        <p className="text-xs text-destructive">Select at least one destination.</p>
+      {!anySelected && destinations.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Select at least one destination to continue.
+        </p>
       )}
     </div>
   );

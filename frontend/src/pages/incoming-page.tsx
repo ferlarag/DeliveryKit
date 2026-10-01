@@ -110,11 +110,10 @@ export function IncomingPage() {
 
   function openCreate() {
     const id = crypto.randomUUID();
-    const ids = destinations.map((destination) => destination.id);
     setBaselineId(id);
-    setBaselineDestinationIds(ids);
+    setBaselineDestinationIds([]);
     setNewId(id);
-    setNewDestinationIds(ids);
+    setNewDestinationIds([]);
     setSubmitted(false);
     setFormError(null);
     setCreateOpen(true);

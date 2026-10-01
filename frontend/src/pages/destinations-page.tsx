@@ -7,6 +7,7 @@ import {
 } from "@remixicon/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { CopyableText } from "@/components/copyable-text";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -279,7 +280,7 @@ export function DestinationsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Destination URL</TableHead>
-                    <TableHead className="text-right">ID</TableHead>
+                    <TableHead className="w-44 min-w-44 max-w-44 text-right">ID</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -289,11 +290,13 @@ export function DestinationsPage() {
                       <TableCell className="max-w-md truncate font-medium" title={endpoint.url}>
                         {endpoint.url}
                       </TableCell>
-                      <TableCell
-                        className="text-right text-sm text-muted-foreground"
-                        title={endpoint.id}
-                      >
-                        {endpoint.id.slice(0, 8)}…
+                      <TableCell className="w-44 min-w-44 max-w-44 text-right text-sm text-muted-foreground">
+                        <CopyableText
+                          value={endpoint.id}
+                          displayValue={`${endpoint.id.slice(0, 8)}…`}
+                          label="destination ID"
+                          className="w-full min-w-0 justify-end"
+                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -433,7 +436,9 @@ export function DestinationsPage() {
           </DialogHeader>
           <div className="space-y-1.5 text-sm">
             <span className="text-muted-foreground">Destination ID</span>
-            <p className="break-all text-sm">{viewing?.id}</p>
+            {viewing && (
+              <CopyableText value={viewing.id} displayValue={viewing.id} label="destination ID" />
+            )}
           </div>
           <form onSubmit={saveEdit} className="space-y-5">
             <Field data-invalid={!!editValidation}>
